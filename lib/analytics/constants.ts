@@ -1,0 +1,29 @@
+import { BEHAVIOR_SIGNAL_LABELS, PERSONALITY_DEFINITIONS } from "./constants.personalities";
+import { MODIFIER_DEFINITIONS } from "./constants.modifiers";
+import {
+  FALLBACK_CINEMATIC_SUMMARIES,
+  FALLBACK_INTERPRETATION_LINES,
+  FALLBACK_TRENCH_COPYPASTA,
+  FALLBACK_X_LINES,
+} from "./constants.fallback-lines";
+import { SEED_WALLET_PROFILES } from "./constants.seeds";
+
+export const ALLOWED_RANGE_HOURS = [24, 48, 72] as const;
+
+export const DEFAULT_WRITERS_ROOM_PATH = "prompts/writers_room_content_bank.md";
+
+export const MIN_INTERPRETATION_LINES = 5;
+export const MAX_INTERPRETATION_LINES = 10;
+export const MIN_X_LINES = 5;
+export const MAX_X_LINES = 10;
+
+export {
+  BEHAVIOR_SIGNAL_LABELS,
+  FALLBACK_CINEMATIC_SUMMARIES,
+  FALLBACK_INTERPRETATION_LINES,
+  FALLBACK_TRENCH_COPYPASTA,
+  FALLBACK_X_LINES,
+  MODIFIER_DEFINITIONS,
+  PERSONALITY_DEFINITIONS,
+  SEED_WALLET_PROFILES,
+};
