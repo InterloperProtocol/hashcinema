@@ -9,9 +9,10 @@ const envSchema = z.object({
     .default("https://api.mainnet-beta.solana.com"),
   OPENROUTER_API_KEY: z.string().min(1),
   VIDEO_API_KEY: z.string().min(1),
+  HELIUS_WEBHOOK_SECRET: z.string().min(1).optional(),
   FIREBASE_PROJECT_ID: z.string().min(1),
-  FIREBASE_CLIENT_EMAIL: z.string().min(1),
-  FIREBASE_PRIVATE_KEY: z.string().min(1),
+  FIREBASE_CLIENT_EMAIL: z.string().min(1).optional(),
+  FIREBASE_PRIVATE_KEY: z.string().min(1).optional(),
   HASHCINEMA_PAYMENT_WALLET: z.string().min(32).max(64),
   FIREBASE_STORAGE_BUCKET: z.string().optional(),
   APP_BASE_URL: z.string().url().default("http://localhost:3000"),
@@ -24,6 +25,8 @@ const envSchema = z.object({
   OPENROUTER_APP_NAME: z.string().default("HASHCINEMA"),
   OPENROUTER_SITE_URL: z.string().url().optional(),
   VIDEO_API_BASE_URL: z.string().url().optional(),
+  VIDEO_ENGINE: z.enum(["generic", "google_veo"]).default("generic"),
+  VIDEO_VEO_MODEL: z.string().default("veo-3"),
   ANALYTICS_ENGINE_MODE: z
     .enum(["v2_fallback_legacy", "v2", "legacy"])
     .default("v2_fallback_legacy"),

@@ -40,5 +40,26 @@ describe("loadWritersRoomContent", () => {
 
     await rm(dir, { recursive: true, force: true });
   });
-});
 
+  it("auto-fills personalities and modifiers from engine defaults", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "writers-room-engine-"));
+    const filePath = path.join(dir, "writers_room_content_bank.md");
+    const markdown = `
+# personalities
+
+# modifiers
+`;
+    await writeFile(filePath, markdown, "utf8");
+
+    const result = await loadWritersRoomContent(filePath);
+
+    expect(result.source).toBe("file");
+    expect(result.personalities["chaos-gambler"]?.displayName).toBe("The Chaos Gambler");
+    expect(result.modifiers["maximum-hopium"]?.displayName).toBe("Maximum Hopium");
+    expect(
+      result.warnings.some((warning) => warning.includes("auto-filled")),
+    ).toBe(true);
+
+    await rm(dir, { recursive: true, force: true });
+  });
+});

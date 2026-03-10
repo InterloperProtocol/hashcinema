@@ -12,7 +12,7 @@ export async function triggerJobProcessing(jobId: string): Promise<void> {
   const env = getEnv();
   if (env.WORKER_URL) {
     await withRetry(
-      async (attempt) => {
+      async () => {
         const response = await fetchWithTimeout(
           env.WORKER_URL!,
           {

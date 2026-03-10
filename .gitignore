@@ -19,6 +19,7 @@
 
 # production
 /build
+video-service/dist/
 
 # misc
 .DS_Store

@@ -62,6 +62,8 @@ function toTimeline(trades: NormalizedTrade[]): ReportTimelineItem[] {
     signature: trade.signature,
     mint: trade.mint,
     symbol: trade.symbol ?? trade.name ?? trade.mint.slice(0, 6),
+    name: trade.name,
+    image: trade.image ?? null,
     side: trade.side === "BUY" ? "buy" : "sell",
     tokenAmount: round(trade.tokenAmount ?? 0, 6),
     solAmount: round(trade.solAmount, 6),
@@ -354,7 +356,7 @@ function fallbackMomentFromEvent(event: WalletKeyEvent | undefined): WalletMomen
   };
 }
 
-function fallbackCinematicSummary(report: ReportDocument, story: WalletStory): CinematicSummary {
+function fallbackCinematicSummary(report: ReportDocument): CinematicSummary {
   const lines = ensureArrayRange(
     [
       report.narrativeSummary ?? "",
@@ -480,13 +482,14 @@ export function buildFallbackAnalysisFromLegacyArtifacts(input: {
 }): WalletAnalysisResult {
   const report = input.report;
   const summary = input.summary;
-  const legacyMetrics = report.walletProfile?.metrics;
 
   const normalizedTrades: NormalizedTrade[] = report.timeline.map((item) => ({
     signature: item.signature,
     timestamp: item.timestamp,
     mint: item.mint,
     symbol: item.symbol,
+    name: item.name,
+    image: item.image ?? undefined,
     side: item.side === "buy" ? "BUY" : "SELL",
     solAmount: item.solAmount,
     tokenAmount: item.tokenAmount,
@@ -616,7 +619,7 @@ export function buildFallbackAnalysisFromLegacyArtifacts(input: {
     interpretationLines,
     moments,
     walletVibeCheck: report.narrativeSummary ?? summary,
-    cinematicSummary: fallbackCinematicSummary({ ...report, summary } as ReportDocument, input.story),
+    cinematicSummary: fallbackCinematicSummary({ ...report, summary } as ReportDocument),
     xReadyLines,
     storyBeats,
     writersRoomSelections: {
@@ -628,4 +631,3 @@ export function buildFallbackAnalysisFromLegacyArtifacts(input: {
     },
   };
 }
-

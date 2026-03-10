@@ -138,6 +138,8 @@ function buildTimeline(trades: PumpTrade[]): ReportTimelineItem[] {
     signature: trade.signature,
     mint: trade.mint,
     symbol: trade.symbol,
+    name: trade.name,
+    image: trade.image,
     side: trade.side,
     tokenAmount: round(trade.tokenAmount, 6),
     solAmount: round(trade.solAmount, 6),

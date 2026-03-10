@@ -1,7 +1,7 @@
 import { JobStatus } from "@/lib/types/domain";
 
 const transitions: Record<JobStatus, JobStatus[]> = {
-  awaiting_payment: ["payment_detected", "failed"],
+  awaiting_payment: ["payment_detected", "payment_confirmed", "failed"],
   payment_detected: ["payment_confirmed", "failed"],
   payment_confirmed: ["processing", "failed"],
   processing: ["complete", "failed"],

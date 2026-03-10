@@ -1,4 +1,5 @@
 import { getJobArtifacts } from "@/lib/jobs/repository";
+import { buildPaymentInstructions } from "@/lib/payments/instructions";
 import { NextResponse } from "next/server";
 
 export const runtime = "nodejs";
@@ -22,6 +23,7 @@ export async function GET(_: Request, context: Context) {
       video,
       status: job.status,
       progress: job.progress,
+      payment: buildPaymentInstructions(job),
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";

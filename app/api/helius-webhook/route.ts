@@ -1,19 +1,16 @@
-import { withSolanaRpcFallback } from "@/lib/helius/connection";
+import { getEnv } from "@/lib/env";
 import {
+  applyConfirmedPayment,
   getJob,
-  markPaymentConfirmed,
-  markPaymentDetected,
-  updateJob,
 } from "@/lib/jobs/repository";
 import { triggerJobProcessing } from "@/lib/jobs/trigger";
 import {
-  extractMemo,
-  hasSufficientPayment,
   HeliusEnhancedWebhookTransaction,
-  transactionTargetsPlatformWallet,
 } from "@/lib/payments/webhook";
+import { verifyOnChainPayment } from "@/lib/payments/onchain-verify";
 import { enforceRateLimit } from "@/lib/security/rate-limit";
 import { getRequestIp } from "@/lib/security/request-ip";
+import { isAuthorizedWebhookRequest } from "@/lib/security/webhook-auth";
 import { NextRequest, NextResponse } from "next/server";
 
 export const runtime = "nodejs";
@@ -36,23 +33,29 @@ function normalizeWebhookPayload(
   return [];
 }
 
-async function isSignatureConfirmed(signature: string): Promise<boolean> {
-  const status = await withSolanaRpcFallback((connection) =>
-    connection.getSignatureStatus(signature, {
-      searchTransactionHistory: true,
-    }),
-  );
-
-  const confirmation = status.value?.confirmationStatus;
-  return (
-    confirmation === "confirmed" ||
-    confirmation === "finalized" ||
-    status.value?.confirmations === null
-  );
-}
-
 export async function POST(request: NextRequest) {
   try {
+    const env = getEnv();
+    if (!env.HELIUS_WEBHOOK_SECRET) {
+      return NextResponse.json(
+        { ok: false, error: "HELIUS_WEBHOOK_SECRET is not configured" },
+        { status: 500 },
+      );
+    }
+
+    const authorized = isAuthorizedWebhookRequest({
+      headers: {
+        authorization: request.headers.get("authorization"),
+        xHeliusWebhookSecret: request.headers.get("x-helius-webhook-secret"),
+        xApiKey: request.headers.get("x-api-key"),
+      },
+      secret: env.HELIUS_WEBHOOK_SECRET,
+    });
+
+    if (!authorized) {
+      return NextResponse.json({ ok: false, error: "Unauthorized webhook request" }, { status: 401 });
+    }
+
     const ip = getRequestIp(request);
     const rateLimit = await enforceRateLimit({
       scope: "api_helius_webhook_post",
@@ -86,9 +89,11 @@ export async function POST(request: NextRequest) {
       result:
         | "ignored"
         | "job_not_found"
-        | "insufficient_amount"
+        | "partial_payment"
         | "duplicate"
         | "confirmed";
+      lamportsToPlatform?: number;
+      remainingLamports?: number;
     }> = [];
 
     for (const tx of transactions) {
@@ -98,12 +103,18 @@ export async function POST(request: NextRequest) {
         continue;
       }
 
-      if (!transactionTargetsPlatformWallet(tx)) {
+      const onChain = await verifyOnChainPayment(signature);
+      if (!onChain.confirmed) {
         results.push({ signature, jobId: null, result: "ignored" });
         continue;
       }
 
-      const memo = extractMemo(tx);
+      if (onChain.lamportsToPlatform <= 0) {
+        results.push({ signature, jobId: null, result: "ignored" });
+        continue;
+      }
+
+      const memo = onChain.memo?.trim();
       if (!memo) {
         results.push({ signature, jobId: null, result: "ignored" });
         continue;
@@ -125,49 +136,49 @@ export async function POST(request: NextRequest) {
         continue;
       }
 
-      if (job.status === "payment_confirmed") {
-        await triggerJobProcessing(job.jobId);
-        results.push({ signature, jobId: job.jobId, result: "confirmed" });
+      const payment = await applyConfirmedPayment({
+        jobId: job.jobId,
+        signature,
+        lamports: onChain.lamportsToPlatform,
+      });
+
+      if (!payment.job) {
+        results.push({ signature, jobId: job.jobId, result: "job_not_found" });
         continue;
       }
 
-      if (
-        job.status !== "awaiting_payment" &&
-        job.status !== "payment_detected"
-      ) {
+      if (payment.duplicate) {
         results.push({ signature, jobId: job.jobId, result: "duplicate" });
         continue;
       }
 
-      if (
-        job.status === "payment_detected" &&
-        job.txSignature &&
-        job.txSignature !== signature
-      ) {
-        results.push({ signature, jobId: job.jobId, result: "duplicate" });
-        continue;
-      }
+      const remainingLamports = Math.max(
+        payment.job.requiredLamports - payment.job.receivedLamports,
+        0,
+      );
 
-      await markPaymentDetected(job.jobId, signature);
+      if (payment.job.status === "payment_confirmed") {
+        if (payment.newlyConfirmed) {
+          await triggerJobProcessing(job.jobId);
+        }
 
-      if (!hasSufficientPayment({ tx, requiredPriceSol: job.priceSol })) {
-        await updateJob(job.jobId, {
-          errorCode: "insufficient_payment",
-          errorMessage: `Detected payment is lower than required ${job.priceSol} SOL.`,
+        results.push({
+          signature,
+          jobId: job.jobId,
+          result: "confirmed",
+          lamportsToPlatform: onChain.lamportsToPlatform,
+          remainingLamports,
         });
-        results.push({ signature, jobId: job.jobId, result: "insufficient_amount" });
         continue;
       }
 
-      const confirmed = await isSignatureConfirmed(signature);
-      if (!confirmed) {
-        results.push({ signature, jobId: job.jobId, result: "ignored" });
-        continue;
-      }
-
-      await markPaymentConfirmed(job.jobId, signature);
-      await triggerJobProcessing(job.jobId);
-      results.push({ signature, jobId: job.jobId, result: "confirmed" });
+      results.push({
+        signature,
+        jobId: job.jobId,
+        result: "partial_payment",
+        lamportsToPlatform: onChain.lamportsToPlatform,
+        remainingLamports,
+      });
     }
 
     return NextResponse.json({ ok: true, processed: results.length, results });

@@ -1,11 +1,12 @@
 "use client";
 
 import { PackageSelector } from "@/components/PackageSelector";
+import { PaymentInstructionsCard } from "@/components/PaymentInstructionsCard";
 import { WalletInput } from "@/components/WalletInput";
+import type { PaymentInstructions } from "@/lib/payments/instructions";
 import { JobDocument, PackageType } from "@/lib/types/domain";
-import Image from "next/image";
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 
 interface CreateJobResponse {
   jobId: string;
@@ -17,6 +18,7 @@ interface CreateJobResponse {
 
 interface JobStatusResponse {
   job?: JobDocument;
+  payment?: PaymentInstructions;
   status?: string;
   progress?: string;
   error?: string;
@@ -122,21 +124,6 @@ export default function HomePage() {
     };
   }, [jobPayment?.jobId]);
 
-  const qrUrl = useMemo(() => {
-    if (!jobPayment?.solanaPayUrl) return null;
-    return `https://api.qrserver.com/v1/create-qr-code/?size=260x260&data=${encodeURIComponent(
-      jobPayment.solanaPayUrl,
-    )}`;
-  }, [jobPayment?.solanaPayUrl]);
-
-  async function copy(value: string) {
-    try {
-      await navigator.clipboard.writeText(value);
-    } catch {
-      setError("Clipboard copy failed.");
-    }
-  }
-
   return (
     <div className="relative min-h-screen overflow-hidden bg-[#07080d]">
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_20%_10%,rgba(48,219,255,0.2),transparent_35%),radial-gradient(circle_at_90%_0%,rgba(245,96,64,0.15),transparent_40%),radial-gradient(circle_at_50%_90%,rgba(140,115,255,0.12),transparent_45%)]" />
@@ -178,79 +165,26 @@ export default function HomePage() {
         </section>
 
         {jobPayment ? (
-          <section className="mt-6 grid gap-6 rounded-2xl border border-zinc-800 bg-zinc-900/60 p-6 md:grid-cols-[1fr,280px]">
-            <div className="space-y-4">
-              <h2 className="text-xl font-semibold text-zinc-100">Payment Instructions</h2>
-              <p className="text-sm text-zinc-300">
-                Send <span className="font-semibold text-cyan-200">{jobPayment.priceSol} SOL</span> to the
-                platform wallet and include memo:
-              </p>
-
-              <div className="rounded-xl border border-zinc-800 bg-zinc-950/70 p-3">
-                <p className="text-xs uppercase tracking-[0.16em] text-zinc-400">
-                  Wallet
-                </p>
-                <p className="mt-1 break-all text-sm text-zinc-100">
-                  {jobPayment.paymentWallet}
-                </p>
-                <button
-                  type="button"
-                  onClick={() => copy(jobPayment.paymentWallet)}
-                  className="mt-2 rounded-md border border-zinc-700 px-3 py-1 text-xs text-zinc-200 hover:bg-zinc-800"
-                >
-                  Copy wallet
-                </button>
-              </div>
-
-              <div className="rounded-xl border border-zinc-800 bg-zinc-950/70 p-3">
-                <p className="text-xs uppercase tracking-[0.16em] text-zinc-400">Memo</p>
-                <p className="mt-1 break-all text-sm text-zinc-100">{jobPayment.memo}</p>
-                <button
-                  type="button"
-                  onClick={() => copy(jobPayment.memo)}
-                  className="mt-2 rounded-md border border-zinc-700 px-3 py-1 text-xs text-zinc-200 hover:bg-zinc-800"
-                >
-                  Copy memo
-                </button>
-              </div>
-
-              <a
-                href={jobPayment.solanaPayUrl}
-                className="inline-flex rounded-lg border border-cyan-500 px-4 py-2 text-sm text-cyan-200 hover:bg-cyan-500/10"
-              >
-                Open Solana Pay Link
-              </a>
-
-              <div className="text-sm text-zinc-300">
-                Status:{" "}
-                <span className="font-semibold text-cyan-200">
-                  {statusLabel(jobStatus?.job?.status ?? jobStatus?.status, jobStatus?.job?.progress ?? jobStatus?.progress)}
-                </span>
-              </div>
-
-              <Link
-                href={`/job/${jobPayment.jobId}`}
-                className="inline-flex rounded-lg border border-zinc-700 px-4 py-2 text-sm text-zinc-200 hover:bg-zinc-800"
-              >
-                Open Job Page
-              </Link>
-            </div>
-
-            <div className="rounded-xl border border-zinc-800 bg-zinc-950/70 p-3">
-              <p className="mb-3 text-xs uppercase tracking-[0.16em] text-zinc-400">
-                Scan to Pay
-              </p>
-              {qrUrl ? (
-                <Image
-                  src={qrUrl}
-                  alt="Solana Pay QR"
-                  width={260}
-                  height={260}
-                  className="h-[260px] w-[260px] rounded-lg bg-white p-2"
-                />
-              ) : null}
-            </div>
-          </section>
+          <div className="mt-6 space-y-4">
+            <PaymentInstructionsCard
+              amountSol={jobStatus?.payment?.amountSol ?? jobPayment.priceSol}
+              paymentWallet={jobStatus?.payment?.paymentWallet ?? jobPayment.paymentWallet}
+              memo={jobStatus?.payment?.memo ?? jobPayment.memo}
+              solanaPayUrl={jobStatus?.payment?.solanaPayUrl ?? jobPayment.solanaPayUrl}
+              receivedSol={jobStatus?.payment?.receivedSol}
+              remainingSol={jobStatus?.payment?.remainingSol}
+              statusText={statusLabel(
+                jobStatus?.job?.status ?? jobStatus?.status,
+                jobStatus?.job?.progress ?? jobStatus?.progress,
+              )}
+            />
+            <Link
+              href={`/job/${jobPayment.jobId}`}
+              className="inline-flex rounded-lg border border-zinc-700 px-4 py-2 text-sm text-zinc-200 hover:bg-zinc-800"
+            >
+              Open Job Page
+            </Link>
+          </div>
         ) : null}
       </main>
     </div>

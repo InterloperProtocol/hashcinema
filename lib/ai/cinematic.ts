@@ -21,6 +21,81 @@ const scriptSchema = z.object({
   scenes: z.array(sceneSchema).min(3).max(12),
 });
 
+interface TokenImageReference {
+  mint: string;
+  symbol: string;
+  name: string | null;
+  imageUrl: string;
+  tradeCount: number;
+  lastSeenTimestamp: number;
+}
+
+function isHttpUrl(value: string | null | undefined): value is string {
+  if (!value) return false;
+
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+export function buildPumpImageReferences(story: WalletStory): TokenImageReference[] {
+  const byMint = new Map<string, TokenImageReference>();
+
+  for (const item of story.timeline) {
+    if (!isHttpUrl(item.image)) {
+      continue;
+    }
+
+    const existing = byMint.get(item.mint);
+    if (existing) {
+      existing.tradeCount += 1;
+      existing.lastSeenTimestamp = Math.max(existing.lastSeenTimestamp, item.timestamp);
+      continue;
+    }
+
+    byMint.set(item.mint, {
+      mint: item.mint,
+      symbol: item.symbol,
+      name: item.name ?? null,
+      imageUrl: item.image,
+      tradeCount: 1,
+      lastSeenTimestamp: item.timestamp,
+    });
+  }
+
+  return [...byMint.values()]
+    .sort((a, b) => {
+      if (b.tradeCount !== a.tradeCount) {
+        return b.tradeCount - a.tradeCount;
+      }
+      return b.lastSeenTimestamp - a.lastSeenTimestamp;
+    })
+    .slice(0, 8);
+}
+
+export function assignSceneImageUrls(
+  scenes: CinematicScene[],
+  imagePool: string[],
+): CinematicScene[] {
+  const dedupedPool = [...new Set(imagePool.filter((url) => isHttpUrl(url)))];
+
+  if (!dedupedPool.length) {
+    return scenes.map((scene) => ({
+      ...scene,
+      imageUrl: isHttpUrl(scene.imageUrl) ? scene.imageUrl : null,
+    }));
+  }
+
+  return scenes.map((scene, index) => ({
+    ...scene,
+    imageUrl:
+      isHttpUrl(scene.imageUrl) ? scene.imageUrl : dedupedPool[index % dedupedPool.length]!,
+  }));
+}
+
 function normalizeSceneDurations(
   scenes: CinematicScene[],
   targetDuration: number,
@@ -57,6 +132,14 @@ export async function generateCinematicScript(
     "cinematic_prompt_template.md",
   );
   const template = await readFile(templatePath, "utf8");
+  const tokenImageReferences = buildPumpImageReferences(story);
+  const imageReferencePayload = tokenImageReferences.map((reference) => ({
+    mint: reference.mint,
+    symbol: reference.symbol,
+    name: reference.name,
+    imageUrl: reference.imageUrl,
+    tradeCount: reference.tradeCount,
+  }));
 
   const raw = await openRouterJson<unknown>({
     temperature: 0.35,
@@ -68,9 +151,9 @@ export async function generateCinematicScript(
       },
       {
         role: "user",
-        content: `Build a cinematic script from this factual wallet story JSON:\n${JSON.stringify(
-          story,
-        )}`,
+        content:
+          `Build a cinematic script from this factual wallet story JSON:\n${JSON.stringify(story)}` +
+          `\n\nPump.fun token image metadata to use in scene imageUrl fields when relevant:\n${JSON.stringify(imageReferencePayload)}`,
       },
     ],
   });
@@ -83,9 +166,13 @@ export async function generateCinematicScript(
     })),
     story.durationSeconds,
   );
+  const scenesWithImages = assignSceneImageUrls(
+    normalizedScenes,
+    tokenImageReferences.map((reference) => reference.imageUrl),
+  );
 
   return {
     hookLine: parsed.hookLine,
-    scenes: normalizedScenes,
+    scenes: scenesWithImages,
   };
 }

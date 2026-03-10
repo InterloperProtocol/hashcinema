@@ -1,6 +1,8 @@
 import { PACKAGE_CONFIG } from "@/lib/constants";
 import { getDb } from "@/lib/firebase/admin";
 import { assertTransition } from "@/lib/jobs/state-machine";
+import { applyPaymentSettlement } from "@/lib/payments/settlement";
+import { solToLamports } from "@/lib/payments/solana-pay";
 import {
   JobDocument,
   JobProgress,
@@ -14,6 +16,18 @@ import { randomUUID } from "crypto";
 
 function nowIso(): string {
   return new Date().toISOString();
+}
+
+function normalizeJobDocument(raw: JobDocument): JobDocument {
+  return {
+    ...raw,
+    requiredLamports: raw.requiredLamports ?? solToLamports(raw.priceSol),
+    receivedLamports: raw.receivedLamports ?? 0,
+    paymentSignatures: Array.isArray(raw.paymentSignatures)
+      ? raw.paymentSignatures
+      : [],
+    lastPaymentAt: raw.lastPaymentAt ?? null,
+  };
 }
 
 function jobsCollection() {
@@ -54,6 +68,10 @@ export async function createJob(input: {
     updatedAt: createdAt,
     errorCode: null,
     errorMessage: null,
+    requiredLamports: solToLamports(pkg.priceSol),
+    receivedLamports: 0,
+    paymentSignatures: [],
+    lastPaymentAt: null,
   };
 
   await jobsCollection().doc(jobId).set(job);
@@ -65,7 +83,7 @@ export async function getJob(jobId: string): Promise<JobDocument | null> {
   if (!doc.exists) {
     return null;
   }
-  return doc.data() as JobDocument;
+  return normalizeJobDocument(doc.data() as JobDocument);
 }
 
 export async function getReport(jobId: string): Promise<ReportDocument | null> {
@@ -124,7 +142,7 @@ export async function updateJobStatus(
       throw new Error(`Job ${jobId} not found`);
     }
 
-    const current = snap.data() as JobDocument;
+    const current = normalizeJobDocument(snap.data() as JobDocument);
     if (current.status !== nextStatus) {
       assertTransition(current.status, nextStatus);
     }
@@ -163,12 +181,17 @@ export async function markPaymentDetected(
     await updateJobStatus(jobId, "payment_detected", {
       txSignature,
       progress: "payment_detected",
+      lastPaymentAt: nowIso(),
     });
     return;
   }
 
   if (job.status === "payment_detected" && !job.txSignature) {
-    await updateJob(jobId, { txSignature, progress: "payment_detected" });
+    await updateJob(jobId, {
+      txSignature,
+      progress: "payment_detected",
+      lastPaymentAt: nowIso(),
+    });
   }
 }
 
@@ -187,10 +210,12 @@ export async function markPaymentConfirmed(
     await updateJobStatus(jobId, "payment_detected", {
       txSignature,
       progress: "payment_detected",
+      lastPaymentAt: nowIso(),
     });
     await updateJobStatus(jobId, "payment_confirmed", {
       txSignature,
       progress: "payment_confirmed",
+      lastPaymentAt: nowIso(),
     });
     return;
   }
@@ -199,8 +224,87 @@ export async function markPaymentConfirmed(
     await updateJobStatus(jobId, "payment_confirmed", {
       txSignature,
       progress: "payment_confirmed",
+      lastPaymentAt: nowIso(),
     });
   }
+}
+
+export async function applyConfirmedPayment(input: {
+  jobId: string;
+  signature: string;
+  lamports: number;
+}): Promise<{
+  job: JobDocument | null;
+  duplicate: boolean;
+  newlyConfirmed: boolean;
+}> {
+  return getDb().runTransaction(async (tx) => {
+    const ref = jobsCollection().doc(input.jobId);
+    const snap = await tx.get(ref);
+    if (!snap.exists) {
+      return {
+        job: null,
+        duplicate: false,
+        newlyConfirmed: false,
+      };
+    }
+
+    const current = normalizeJobDocument(snap.data() as JobDocument);
+    const settlement = applyPaymentSettlement(
+      {
+        status: current.status,
+        requiredLamports: current.requiredLamports,
+        receivedLamports: current.receivedLamports,
+        paymentSignatures: current.paymentSignatures,
+        txSignature: current.txSignature,
+      },
+      {
+        signature: input.signature,
+        lamports: input.lamports,
+      },
+    );
+
+    if (settlement.duplicate) {
+      return {
+        job: current,
+        duplicate: true,
+        newlyConfirmed: false,
+      };
+    }
+
+    if (current.status !== settlement.next.status) {
+      assertTransition(current.status, settlement.next.status);
+    }
+
+    const nextProgress: JobProgress =
+      settlement.next.status === "payment_confirmed"
+        ? "payment_confirmed"
+        : settlement.next.status === "payment_detected"
+          ? "payment_detected"
+          : current.progress;
+
+    const updated: JobDocument = {
+      ...current,
+      status: settlement.next.status,
+      progress: nextProgress,
+      txSignature: settlement.next.txSignature,
+      requiredLamports: settlement.next.requiredLamports,
+      receivedLamports: settlement.next.receivedLamports,
+      paymentSignatures: settlement.next.paymentSignatures,
+      lastPaymentAt: nowIso(),
+      errorCode: null,
+      errorMessage: null,
+      updatedAt: nowIso(),
+    };
+
+    tx.set(ref, updated, { merge: true });
+
+    return {
+      job: updated,
+      duplicate: false,
+      newlyConfirmed: settlement.newlyConfirmed,
+    };
+  });
 }
 
 export async function markJobFailed(

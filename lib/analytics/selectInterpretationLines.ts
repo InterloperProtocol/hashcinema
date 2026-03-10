@@ -81,6 +81,28 @@ function buildActiveTags(input: {
   if (input.metrics.holding.bagholdBias >= 0.35) tags.add("baghold");
   if (input.metrics.virality.cinemaScore >= 0.5) tags.add("cinema");
   if (input.metrics.virality.memeabilityScore >= 0.5) tags.add("viral");
+  if (input.metrics.attention.attentionSensitivity >= 0.5) tags.add("attention");
+  if (
+    input.metrics.behavior.patienceScore >= 0.6 &&
+    input.metrics.behavior.chaosScore <= 0.45
+  ) {
+    tags.add("discipline");
+  }
+  if (input.metrics.activity.tradesPerHour >= 0.35) tags.add("overtrading");
+  if (input.metrics.activity.tradesPerHour <= 0.08) tags.add("no-trade");
+  if (
+    input.metrics.timing.lateEntryBias >= 0.55 &&
+    input.metrics.behavior.chaosScore >= 0.55
+  ) {
+    tags.add("new-pairs");
+  }
+  if (
+    input.metrics.behavior.patienceScore >= 0.55 &&
+    input.metrics.activity.tradesPerHour <= 0.15
+  ) {
+    tags.add("consistency");
+  }
+  tags.add("culture");
   if (input.metrics.timing.nightActivityScore >= 0.35) tags.add("night");
   if (input.metrics.behavior.revengeBias >= 0.4) tags.add("revenge");
   if (input.metrics.attention.chaseScore >= 0.5) tags.add("momentum");

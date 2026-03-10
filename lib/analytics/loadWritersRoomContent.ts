@@ -1,6 +1,8 @@
 import { promises as fs } from "fs";
 import path from "path";
 import { DEFAULT_WRITERS_ROOM_PATH } from "./constants";
+import { MODIFIER_DEFINITIONS } from "./constants.modifiers";
+import { PERSONALITY_DEFINITIONS } from "./constants.personalities";
 import {
   InterpretationLineTemplate,
   MetricPath,
@@ -80,6 +82,46 @@ function emptyContent(filePath: string): WritersRoomContent {
   };
 }
 
+function applyEngineCoverageDefaults(content: WritersRoomContent): {
+  personalitiesAdded: number;
+  modifiersAdded: number;
+} {
+  let personalitiesAdded = 0;
+  let modifiersAdded = 0;
+
+  for (const definition of PERSONALITY_DEFINITIONS) {
+    if (content.personalities[definition.id]) {
+      continue;
+    }
+
+    content.personalities[definition.id] = {
+      id: definition.id,
+      displayName: definition.displayName,
+      description: definition.description,
+      humorStyle: definition.humorStyle,
+      themes: definition.preferredThemes,
+    };
+    personalitiesAdded += 1;
+  }
+
+  for (const definition of MODIFIER_DEFINITIONS) {
+    if (content.modifiers[definition.id]) {
+      continue;
+    }
+
+    content.modifiers[definition.id] = {
+      id: definition.id,
+      displayName: definition.displayName,
+      description: definition.description,
+      toneEffect: definition.toneEffect,
+      triggerHints: definition.triggerHints,
+    };
+    modifiersAdded += 1;
+  }
+
+  return { personalitiesAdded, modifiersAdded };
+}
+
 export async function loadWritersRoomContent(
   filePath = DEFAULT_WRITERS_ROOM_PATH,
 ): Promise<WritersRoomContent> {
@@ -136,7 +178,9 @@ export async function loadWritersRoomContent(
       const record = state.flatRecord;
       const id = record.id?.trim();
       if (!id) {
-        content.warnings.push(`Skipped malformed ${state.section} block with no id.`);
+        if (record.__missingIdWarningIssued !== "1") {
+          content.warnings.push(`Skipped malformed ${state.section} block with no id.`);
+        }
         state.flatRecord = null;
         return;
       }
@@ -268,8 +312,18 @@ export async function loadWritersRoomContent(
           continue;
         }
 
+        if (
+          state.flatRecord?.id &&
+          Object.prototype.hasOwnProperty.call(state.flatRecord, key)
+        ) {
+          flushFlatRecord();
+        }
+
         if (!state.flatRecord) {
-          state.flatRecord = {};
+          content.warnings.push(
+            `Skipped malformed ${state.section} block with no id.`,
+          );
+          state.flatRecord = { __missingIdWarningIssued: "1" };
         }
         state.flatRecord[key] = value.trim();
         continue;
@@ -303,6 +357,13 @@ export async function loadWritersRoomContent(
     }
 
     flushFlatRecord();
+
+    const coverageDefaults = applyEngineCoverageDefaults(content);
+    if (coverageDefaults.personalitiesAdded > 0 || coverageDefaults.modifiersAdded > 0) {
+      content.warnings.push(
+        `Writers room auto-filled ${coverageDefaults.personalitiesAdded} personalities and ${coverageDefaults.modifiersAdded} modifiers from engine defaults.`,
+      );
+    }
 
     return content;
   } catch (error) {

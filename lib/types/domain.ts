@@ -44,6 +44,10 @@ export interface JobDocument {
   updatedAt: string;
   errorCode: string | null;
   errorMessage: string | null;
+  requiredLamports: number;
+  receivedLamports: number;
+  paymentSignatures: string[];
+  lastPaymentAt: string | null;
 }
 
 export interface ReportTimelineItem {
@@ -51,6 +55,8 @@ export interface ReportTimelineItem {
   signature: string;
   mint: string;
   symbol: string;
+  name?: string;
+  image?: string | null;
   side: "buy" | "sell";
   tokenAmount: number;
   solAmount: number;

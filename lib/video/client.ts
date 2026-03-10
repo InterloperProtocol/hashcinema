@@ -6,6 +6,7 @@ import {
   withRetry,
 } from "@/lib/network/retry";
 import { GeneratedCinematicScript } from "@/lib/types/domain";
+import { GoogleVeoRenderPayload } from "@/lib/video/veo";
 
 interface StartRenderResponse {
   id?: string;
@@ -32,6 +33,7 @@ export async function renderCinematicVideo(params: {
   wallet: string;
   durationSeconds: number;
   script: GeneratedCinematicScript;
+  googleVeo?: GoogleVeoRenderPayload;
 }): Promise<{ videoUrl: string; thumbnailUrl: string | null }> {
   const env = getEnv();
   if (!env.VIDEO_API_BASE_URL) {
@@ -39,6 +41,30 @@ export async function renderCinematicVideo(params: {
       "VIDEO_API_BASE_URL is required to render cinematic videos.",
     );
   }
+
+  const scenePayload = params.script.scenes.map((scene) => ({
+    ...scene,
+    includeAudio: true,
+  }));
+  const baseRequestPayload = {
+    jobId: params.jobId,
+    wallet: params.wallet,
+    durationSeconds: params.durationSeconds,
+    withSound: true,
+    hookLine: params.script.hookLine,
+    scenes: scenePayload,
+    videoEngine: env.VIDEO_ENGINE,
+  };
+  const renderRequestPayload =
+    env.VIDEO_ENGINE === "google_veo"
+      ? {
+          ...baseRequestPayload,
+          provider: "google_veo",
+          prompt: params.googleVeo?.prompt ?? params.script.hookLine,
+          metadata: params.googleVeo ?? null,
+          googleVeo: params.googleVeo ?? null,
+        }
+      : baseRequestPayload;
 
   const startPayload = await withRetry(
     async () => {
@@ -50,17 +76,7 @@ export async function renderCinematicVideo(params: {
             "Content-Type": "application/json",
             Authorization: `Bearer ${env.VIDEO_API_KEY}`,
           },
-          body: JSON.stringify({
-            jobId: params.jobId,
-            wallet: params.wallet,
-            durationSeconds: params.durationSeconds,
-            withSound: true,
-            hookLine: params.script.hookLine,
-            scenes: params.script.scenes.map((scene) => ({
-              ...scene,
-              includeAudio: true,
-            })),
-          }),
+          body: JSON.stringify(renderRequestPayload),
         },
         20_000,
       );

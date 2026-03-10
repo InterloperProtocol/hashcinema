@@ -8,6 +8,11 @@ import { walletAnalysisResultSchema } from "@/lib/analytics/schemas";
 describe("legacy adapter bridge", () => {
   it("maps v2 analytics result into legacy report/story contracts", async () => {
     const analysis = await analyzeSeedWalletProfile("chaotic-overtrader");
+    if (analysis.normalizedTrades[0]) {
+      analysis.normalizedTrades[0].image = "https://cdn.example.com/seed-0.png";
+      analysis.normalizedTrades[0].name = "Seed Token 0";
+    }
+
     const mapped = adaptWalletAnalysisToLegacyArtifacts({
       jobId: "job-test",
       wallet: analysis.wallet,
@@ -22,6 +27,8 @@ describe("legacy adapter bridge", () => {
     expect(mapped.report.walletPersonality).toBe(analysis.personality.primary.displayName);
     expect(mapped.report.analysisV2?.schemaVersion).toBe("wallet-analysis.v1");
     expect(mapped.story.analytics.pumpTokensTraded).toBe(mapped.report.pumpTokensTraded);
+    expect(mapped.report.timeline[0]?.image).toBe("https://cdn.example.com/seed-0.png");
+    expect(mapped.story.timeline[0]?.image).toBe("https://cdn.example.com/seed-0.png");
   });
 
   it("builds a schema-valid fallback analysis payload from legacy artifacts", async () => {
@@ -45,6 +52,6 @@ describe("legacy adapter bridge", () => {
 
     expect(walletAnalysisResultSchema.parse(fallback)).toEqual(fallback);
     expect(fallback.writersRoomSelections.contentSource).toBe("fallback-only");
+    expect(fallback.normalizedTrades[0]?.image).toBe(mapped.report.timeline[0]?.image ?? undefined);
   });
 });
-

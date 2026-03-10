@@ -1,8 +1,10 @@
 "use client";
 
+import { PaymentInstructionsCard } from "@/components/PaymentInstructionsCard";
 import { ReportCard } from "@/components/ReportCard";
 import { VideoPlayer } from "@/components/VideoPlayer";
 import { FINAL_JOB_STATUSES } from "@/lib/constants";
+import type { PaymentInstructions } from "@/lib/payments/instructions";
 import { JobDocument, ReportDocument, VideoDocument } from "@/lib/types/domain";
 import Link from "next/link";
 import { useParams } from "next/navigation";
@@ -12,6 +14,7 @@ interface JobApiPayload {
   job?: JobDocument;
   report?: ReportDocument | null;
   video?: VideoDocument | null;
+  payment?: PaymentInstructions;
   error?: string;
 }
 
@@ -65,6 +68,7 @@ export default function JobPage() {
   const [job, setJob] = useState<JobDocument | null>(null);
   const [report, setReport] = useState<ReportDocument | null>(null);
   const [video, setVideo] = useState<VideoDocument | null>(null);
+  const [payment, setPayment] = useState<PaymentInstructions | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const loadJob = useCallback(async (): Promise<JobDocument | null> => {
@@ -76,6 +80,7 @@ export default function JobPage() {
     setJob(payload.job ?? null);
     setReport(payload.report ?? null);
     setVideo(payload.video ?? null);
+    setPayment(payload.payment ?? null);
     return payload.job ?? null;
   }, [jobId]);
 
@@ -181,6 +186,22 @@ export default function JobPage() {
             </p>
           ) : null}
         </div>
+
+        {job &&
+        payment &&
+        (job.status === "awaiting_payment" ||
+          job.status === "payment_detected" ||
+          job.status === "payment_confirmed") ? (
+          <PaymentInstructionsCard
+            amountSol={payment.amountSol}
+            paymentWallet={payment.paymentWallet}
+            memo={payment.memo}
+            solanaPayUrl={payment.solanaPayUrl}
+            receivedSol={payment.receivedSol}
+            remainingSol={payment.remainingSol}
+            statusText={statusLabel(job.status, job.progress)}
+          />
+        ) : null}
 
         {isComplete && video?.videoUrl ? (
           <section className="space-y-4 rounded-2xl border border-zinc-800 bg-zinc-900/60 p-5">
