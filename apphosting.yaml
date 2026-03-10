@@ -1,0 +1,61 @@
+env:
+  - variable: ALLOW_IN_PROCESS_WORKER
+    secret: ALLOW_IN_PROCESS_WORKER
+  - variable: ANALYTICS_ENGINE_MODE
+    secret: ANALYTICS_ENGINE_MODE
+  - variable: APP_BASE_URL
+    secret: APP_BASE_URL
+  - variable: FIREBASE_CLIENT_EMAIL
+    secret: FIREBASE_CLIENT_EMAIL
+  - variable: FIREBASE_PRIVATE_KEY
+    secret: FIREBASE_PRIVATE_KEY
+  - variable: FIREBASE_PROJECT_ID
+    secret: FIREBASE_PROJECT_ID
+  - variable: FIREBASE_STORAGE_BUCKET
+    secret: FIREBASE_STORAGE_BUCKET
+  - variable: HASHCINEMA_PAYMENT_WALLET
+    secret: HASHCINEMA_PAYMENT_WALLET
+  - variable: HELIUS_API_KEY
+    secret: HELIUS_API_KEY
+  - variable: HELIUS_WEBHOOK_SECRET
+    secret: HELIUS_WEBHOOK_SECRET
+  - variable: JOB_DISPATCH_BATCH_LIMIT
+    secret: JOB_DISPATCH_BATCH_LIMIT
+  - variable: OPENROUTER_API_KEY
+    secret: OPENROUTER_API_KEY
+  - variable: OPENROUTER_APP_NAME
+    secret: OPENROUTER_APP_NAME
+  - variable: OPENROUTER_BASE_URL
+    secret: OPENROUTER_BASE_URL
+  - variable: OPENROUTER_SITE_URL
+    secret: OPENROUTER_SITE_URL
+  - variable: PAYMENT_DERIVATION_PREFIX
+    secret: PAYMENT_DERIVATION_PREFIX
+  - variable: PAYMENT_MASTER_SEED_HEX
+    secret: PAYMENT_MASTER_SEED_HEX
+  - variable: SOLANA_RPC_FALLBACK_URL
+    secret: SOLANA_RPC_FALLBACK_URL
+  - variable: SOLANA_RPC_URL
+    secret: SOLANA_RPC_URL
+  - variable: SWEEP_BATCH_LIMIT
+    secret: SWEEP_BATCH_LIMIT
+  - variable: SWEEP_MIN_LAMPORTS
+    secret: SWEEP_MIN_LAMPORTS
+  - variable: VIDEO_API_BASE_URL
+    secret: VIDEO_API_BASE_URL
+  - variable: VIDEO_API_KEY
+    secret: VIDEO_API_KEY
+  - variable: VIDEO_ENGINE
+    secret: VIDEO_ENGINE
+  - variable: VIDEO_RENDER_MAX_POLL_ATTEMPTS
+    secret: VIDEO_RENDER_MAX_POLL_ATTEMPTS
+  - variable: VIDEO_RENDER_POLL_INTERVAL_MS
+    secret: VIDEO_RENDER_POLL_INTERVAL_MS
+  - variable: VIDEO_VEO_MODEL
+    secret: VIDEO_VEO_MODEL
+  - variable: WORKER_MAX_BODY_BYTES
+    secret: WORKER_MAX_BODY_BYTES
+  - variable: WORKER_TOKEN
+    secret: WORKER_TOKEN
+  - variable: WORKER_URL
+    secret: WORKER_URL
