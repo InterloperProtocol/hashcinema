@@ -100,7 +100,7 @@ describe("pump metadata resilience", () => {
   it("uses DexScreener token metadata when Pump.fun fails", async () => {
     const mint = "H3kZDLodPNMwcy4sRZKBQySqhKZ3c7K3SAphVYnSpump";
     mocks.fetchWithTimeout.mockImplementation(async (url: string) => {
-      if (url.includes("frontend-api.pump.fun")) {
+      if (url.includes("frontend-api-v3.pump.fun")) {
         return { ok: false, status: 530 };
       }
 
@@ -137,5 +137,39 @@ describe("pump metadata resilience", () => {
     expect(result.name).toBe("No Sense Coin");
     expect(result.symbol).toBe("NoSense");
     expect(result.isPump).toBe(true);
+  });
+
+  it("normalizes ipfs image_uri from Pump v3 metadata for downstream VEO usage", async () => {
+    const mint = "ca";
+    mocks.fetchWithTimeout.mockImplementation(async (url: string) => {
+      if (url.includes("frontend-api-v3.pump.fun")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            mint,
+            name: "Contract Address Token",
+            symbol: "CA",
+            image_uri: "ipfs://QmExampleHash/token.png",
+            description: "test",
+          }),
+        };
+      }
+
+      return { ok: false, status: 404 };
+    });
+    mocks.getAsset.mockResolvedValue({
+      content: {
+        metadata: {},
+        links: {},
+      },
+    });
+
+    const { getOrFetchPumpMetadata } = await import("@/lib/pump/metadata");
+    const result = await getOrFetchPumpMetadata(mint);
+
+    expect(result.image).toBe("https://ipfs.io/ipfs/QmExampleHash/token.png");
+    expect(result.name).toBe("Contract Address Token");
+    expect(result.symbol).toBe("CA");
   });
 });

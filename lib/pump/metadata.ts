@@ -10,7 +10,7 @@ import {
 import { PumpMetadataCacheDocument } from "@/lib/types/domain";
 
 const CACHE_MAX_AGE_MS = 1000 * 60 * 60 * 24;
-const PUMP_FUN_API_BASE_URL = "https://frontend-api.pump.fun";
+const PUMP_FUN_API_BASE_URL = "https://frontend-api-v3.pump.fun";
 const DEXSCREENER_API_BASE_URL = "https://api.dexscreener.com";
 
 interface PumpFunCoinResponse {
@@ -90,6 +90,15 @@ function sanitizeString(input: unknown): string | null {
 function normalizeMaybeUrl(input: unknown): string | null {
   const value = sanitizeString(input);
   if (!value) return null;
+
+  if (value.toLowerCase().startsWith("ipfs://")) {
+    const ipfsPath = value.replace(/^ipfs:\/\//i, "").replace(/^ipfs\//i, "");
+    const normalizedPath = ipfsPath.replace(/^\/+/, "");
+    if (!normalizedPath) {
+      return null;
+    }
+    return `https://ipfs.io/ipfs/${normalizedPath}`;
+  }
 
   try {
     const url = new URL(value);
