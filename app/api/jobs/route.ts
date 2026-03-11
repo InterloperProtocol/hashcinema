@@ -1,4 +1,6 @@
 import { createJob } from "@/lib/jobs/repository";
+import { ensurePaymentAddressSubscribedToHeliusWebhook } from "@/lib/helius/webhook-subscriptions";
+import { logger } from "@/lib/logging/logger";
 import { lamportsToSol } from "@/lib/payments/solana-pay";
 import { enforceRateLimit } from "@/lib/security/rate-limit";
 import { getRequestIp } from "@/lib/security/request-ip";
@@ -72,6 +74,19 @@ export async function POST(request: NextRequest) {
     const job = await createJob({
       wallet: parsed.data.wallet,
       packageType: parsed.data.packageType as PackageType,
+    });
+
+    const subscription = await ensurePaymentAddressSubscribedToHeliusWebhook(
+      job.paymentAddress,
+    );
+    logger.info("helius_webhook_address_subscribed", {
+      component: "api_jobs",
+      stage: "create_job",
+      jobId: job.jobId,
+      paymentAddress: job.paymentAddress,
+      webhookId: subscription.webhookId,
+      createdWebhook: subscription.created,
+      alreadySubscribed: subscription.alreadySubscribed,
     });
 
     return NextResponse.json({

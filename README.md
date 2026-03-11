@@ -68,6 +68,7 @@ ALLOW_IN_PROCESS_WORKER=true
 JOB_DISPATCH_BATCH_LIMIT=25
 WORKER_MAX_BODY_BYTES=32768
 PAYMENT_DERIVATION_PREFIX=hashcinema-job
+HELIUS_WEBHOOK_ID=
 SWEEP_MIN_LAMPORTS=5000
 SWEEP_BATCH_LIMIT=50
 OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
@@ -103,6 +104,7 @@ FFMPEG_PATH=ffmpeg
 
 - `POST /api/jobs`
   - creates job
+  - auto-subscribes the new dedicated payment address to Helius webhook monitoring
   - returns `jobId`, `priceSol`, `paymentAddress`, `amountSol`
 - `GET /api/jobs/[jobId]`
   - returns `status`, `progress`, job/report/video payload + payment instructions (`paymentAddress`, `amountSol`, `remainingSol`)
@@ -122,6 +124,7 @@ Video backend contract reference:
 ## Payment Flow
 
 1. User creates job
+   - backend ensures the dedicated payment address is added to Helius webhook account addresses
 2. UI shows dedicated payment address + amount + copy/paste payload + scannable address QR
 3. User sends SOL to the dedicated address (manual send or scan)
 4. Helius webhook hits `/api/helius-webhook`

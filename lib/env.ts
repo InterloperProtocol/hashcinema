@@ -13,6 +13,7 @@ function isValidSolanaPublicKey(value: string): boolean {
 
 const envSchema = z.object({
   HELIUS_API_KEY: z.string().min(1),
+  HELIUS_WEBHOOK_ID: z.string().uuid().optional(),
   SOLANA_RPC_URL: z.string().url(),
   SOLANA_RPC_FALLBACK_URL: z
     .string()
