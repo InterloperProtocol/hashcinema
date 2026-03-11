@@ -31,6 +31,8 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 firebase-debug.log*
+tmpsecret*.txt
+tmp-ve.txt
 
 # env files (can opt-in for committing if needed)
 .env*

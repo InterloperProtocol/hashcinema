@@ -212,6 +212,82 @@ export async function getJob(jobId: string): Promise<JobDocument | null> {
   return normalizeJobDocument(doc.data() as JobDocument);
 }
 
+const REUSABLE_JOB_STATUSES = new Set<JobStatus>([
+  "awaiting_payment",
+  "payment_detected",
+  "payment_confirmed",
+  "processing",
+]);
+
+export async function findRecentReusableJob(input: {
+  wallet: string;
+  packageType: PackageType;
+  maxAgeMinutes?: number;
+}): Promise<JobDocument | null> {
+  const maxAgeMinutes = Math.max(1, Math.floor(input.maxAgeMinutes ?? 20));
+  const thresholdMs = Date.now() - maxAgeMinutes * 60_000;
+
+  const snapshot = await jobsCollection()
+    .where("wallet", "==", input.wallet)
+    .limit(50)
+    .get();
+
+  const candidates = snapshot.docs
+    .map((doc) => normalizeJobDocument(doc.data() as JobDocument))
+    .sort((a, b) => isoToMs(b.createdAt) - isoToMs(a.createdAt));
+
+  for (const job of candidates) {
+    if (job.packageType !== input.packageType) {
+      continue;
+    }
+    if (!REUSABLE_JOB_STATUSES.has(job.status)) {
+      continue;
+    }
+    if (isoToMs(job.createdAt) < thresholdMs) {
+      continue;
+    }
+    return job;
+  }
+
+  return null;
+}
+
+export async function rollbackUnpaidJob(jobId: string): Promise<{
+  rolledBack: boolean;
+  job: JobDocument | null;
+}> {
+  return getDb().runTransaction(async (tx) => {
+    const ref = jobsCollection().doc(jobId);
+    const snap = await tx.get(ref);
+    if (!snap.exists) {
+      return {
+        rolledBack: false,
+        job: null,
+      };
+    }
+
+    const current = normalizeJobDocument(snap.data() as JobDocument);
+    const isUnpaidAwaitingJob =
+      current.status === "awaiting_payment" &&
+      current.receivedLamports <= 0 &&
+      current.paymentSignatures.length === 0 &&
+      !current.txSignature;
+
+    if (!isUnpaidAwaitingJob) {
+      return {
+        rolledBack: false,
+        job: current,
+      };
+    }
+
+    tx.delete(ref);
+    return {
+      rolledBack: true,
+      job: null,
+    };
+  });
+}
+
 export async function getJobByPaymentAddress(
   paymentAddress: string,
 ): Promise<JobDocument | null> {

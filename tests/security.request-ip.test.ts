@@ -14,13 +14,13 @@ describe("request IP extraction", () => {
     expect(getRequestIp(request)).toBe("203.0.113.1");
   });
 
-  it("uses right-most x-forwarded-for entry to reduce spoofing", () => {
+  it("uses left-most x-forwarded-for entry as client IP", () => {
     const request = new NextRequest("http://localhost/test", {
       headers: {
         "x-forwarded-for": "198.51.100.9, 203.0.113.44",
       },
     });
 
-    expect(getRequestIp(request)).toBe("203.0.113.44");
+    expect(getRequestIp(request)).toBe("198.51.100.9");
   });
 });

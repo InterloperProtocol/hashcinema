@@ -9,6 +9,7 @@
     "guard:no-wallet-connect": "node scripts/guard-no-wallet-connect.mjs",
     "lint": "npm run guard:no-wallet-connect && eslint",
     "test": "npm run guard:no-wallet-connect && vitest run",
+    "test:live": "npm run guard:no-wallet-connect && vitest run tests/live.external-smoke.test.ts",
     "test:watch": "npm run guard:no-wallet-connect && vitest",
     "test:ci": "npm run guard:no-wallet-connect && vitest run --reporter=default",
     "video:dev": "tsx video-service/src/server.ts",

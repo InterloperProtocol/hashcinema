@@ -25,11 +25,11 @@ export function getRequestIp(request: NextRequest): string {
       .map((part) => normalizeIp(part))
       .filter((ip): ip is string => Boolean(ip));
 
-    // Most proxies append to X-Forwarded-For; the right-most trusted hop
-    // reduces spoofing compared to blindly trusting the first value.
-    const last = chain[chain.length - 1];
-    if (last) {
-      return last;
+    // Standard X-Forwarded-For order is client -> proxy chain.
+    // Prefer the left-most value after trusted proxy headers.
+    const first = chain[0];
+    if (first) {
+      return first;
     }
   }
 

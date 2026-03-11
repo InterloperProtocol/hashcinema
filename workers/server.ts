@@ -67,14 +67,27 @@ async function readJsonBody(
 
 const port = Number(process.env.PORT ?? "8080");
 const workerToken = process.env.WORKER_TOKEN;
+const allowUnauthenticatedWorker =
+  process.env.WORKER_ALLOW_UNAUTHENTICATED === "true";
 const maxBodyBytes = Math.max(
   1_024,
   Number(process.env.WORKER_MAX_BODY_BYTES ?? 32 * 1_024),
 );
-const isProduction = process.env.NODE_ENV === "production";
 
-if (isProduction && !workerToken) {
-  throw new Error("WORKER_TOKEN is required in production");
+if (!workerToken && !allowUnauthenticatedWorker) {
+  throw new Error(
+    "WORKER_TOKEN is required. Set WORKER_ALLOW_UNAUTHENTICATED=true only for isolated local development.",
+  );
+}
+
+if (allowUnauthenticatedWorker) {
+  logger.warn("worker_authentication_disabled", {
+    component: "worker",
+    stage: "startup",
+    errorCode: "worker_authentication_disabled",
+    errorMessage:
+      "WORKER_ALLOW_UNAUTHENTICATED=true was set; endpoints are running without bearer auth.",
+  });
 }
 
 const activeJobs = new Set<string>();
@@ -98,7 +111,7 @@ const server = createServer(async (request, response) => {
     return;
   }
 
-  if (workerToken) {
+  if (!allowUnauthenticatedWorker && workerToken) {
     const authHeader = request.headers.authorization;
     if (authHeader !== `Bearer ${workerToken}`) {
       unauthorized(response);

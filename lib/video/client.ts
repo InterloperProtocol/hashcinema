@@ -120,7 +120,7 @@ export async function renderCinematicVideo(params: {
     await sleep(env.VIDEO_RENDER_POLL_INTERVAL_MS);
     const pollUrl =
       startPayload.statusUrl ?? `${env.VIDEO_API_BASE_URL}/render/${renderId}`;
-    let pollResponse: Response | null = null;
+    let pollResponse: Response;
     try {
       pollResponse = await withRetry(
         async () => {
@@ -134,8 +134,13 @@ export async function renderCinematicVideo(params: {
             12_000,
           );
 
-          if (!response.ok && isRetryableHttpStatus(response.status)) {
-            throw new RetryableError(`Video render polling failed (${response.status})`);
+          if (!response.ok) {
+            const body = await response.text();
+            const message = `Video render polling failed (${response.status}): ${body || "empty response"}`;
+            if (isRetryableHttpStatus(response.status)) {
+              throw new RetryableError(message);
+            }
+            throw new Error(message);
           }
 
           return response;
@@ -146,11 +151,12 @@ export async function renderCinematicVideo(params: {
           maxDelayMs: 2_000,
         },
       );
-    } catch {
-      continue;
+    } catch (error) {
+      if (error instanceof RetryableError || error instanceof TypeError) {
+        continue;
+      }
+      throw error;
     }
-
-    if (!pollResponse.ok) continue;
 
     const pollPayload = (await pollResponse.json()) as PollRenderResponse;
     const status = (pollPayload.renderStatus ?? pollPayload.status ?? "").toLowerCase();
