@@ -498,6 +498,81 @@ export async function applyConfirmedPayment(input: {
   });
 }
 
+export type FailedJobRetryPreparationResult =
+  | { status: "ready"; job: JobDocument }
+  | { status: "job_not_found" }
+  | { status: "job_not_failed"; job: JobDocument }
+  | { status: "payment_incomplete"; job: JobDocument };
+
+export async function prepareFailedJobForRetry(
+  jobId: string,
+): Promise<FailedJobRetryPreparationResult> {
+  return getDb().runTransaction(async (tx) => {
+    const jobRef = jobsCollection().doc(jobId);
+    const jobSnap = await tx.get(jobRef);
+    if (!jobSnap.exists) {
+      return { status: "job_not_found" };
+    }
+
+    const current = normalizeJobDocument(jobSnap.data() as JobDocument);
+    if (current.status !== "failed") {
+      return {
+        status: "job_not_failed",
+        job: current,
+      };
+    }
+
+    if (current.receivedLamports < current.requiredLamports) {
+      return {
+        status: "payment_incomplete",
+        job: current,
+      };
+    }
+
+    const now = nowIso();
+    const updated: JobDocument = {
+      ...current,
+      status: "payment_confirmed",
+      progress: "payment_confirmed",
+      errorCode: null,
+      errorMessage: null,
+      updatedAt: now,
+    };
+
+    tx.set(jobRef, updated, { merge: true });
+
+    const outboxRef = dispatchOutboxCollection().doc(jobId);
+    const outboxSnap = await tx.get(outboxRef);
+    const existing = outboxSnap.exists
+      ? normalizeDispatchOutboxDocument(
+          jobId,
+          outboxSnap.data() as Partial<JobDispatchOutboxDocument>,
+        )
+      : null;
+
+    tx.set(
+      outboxRef,
+      {
+        jobId,
+        status: "pending",
+        attempts: 0,
+        nextAttemptAt: now,
+        lockUntil: null,
+        lastError: null,
+        createdAt: existing?.createdAt ?? now,
+        updatedAt: now,
+        dispatchedAt: null,
+      } satisfies JobDispatchOutboxDocument,
+      { merge: true },
+    );
+
+    return {
+      status: "ready",
+      job: updated,
+    };
+  });
+}
+
 export async function markSweepResult(input: {
   jobId: string;
   status: "pending" | "swept" | "failed";

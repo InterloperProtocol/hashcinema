@@ -11,6 +11,7 @@ import { PumpMetadataCacheDocument } from "@/lib/types/domain";
 
 const CACHE_MAX_AGE_MS = 1000 * 60 * 60 * 24;
 const PUMP_FUN_API_BASE_URL = "https://frontend-api.pump.fun";
+const DEXSCREENER_API_BASE_URL = "https://api.dexscreener.com";
 
 interface PumpFunCoinResponse {
   mint?: string;
@@ -23,6 +24,24 @@ interface PumpFunCoinResponse {
   metadata_uri?: string;
   metadataUri?: string;
   uri?: string;
+}
+
+interface DexScreenerTokenPairResponse {
+  dexId?: string;
+  baseToken?: {
+    address?: string;
+    name?: string;
+    symbol?: string;
+  };
+  volume?: {
+    h24?: number;
+  };
+}
+
+interface DexScreenerTokenMetadata {
+  name: string | null;
+  symbol: string | null;
+  isPump: boolean;
 }
 
 export interface PumpTokenMetadata {
@@ -125,6 +144,105 @@ async function fetchPumpFunMetadata(mint: string): Promise<PumpFunCoinResponse |
   );
 }
 
+function toFiniteNumber(input: unknown): number {
+  if (typeof input === "number" && Number.isFinite(input)) {
+    return input;
+  }
+
+  if (typeof input === "string") {
+    const parsed = Number.parseFloat(input);
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+
+  return 0;
+}
+
+function selectBestDexScreenerPair(
+  mint: string,
+  pairs: DexScreenerTokenPairResponse[],
+): DexScreenerTokenPairResponse | null {
+  const mintLc = mint.toLowerCase();
+  const matching = pairs.filter(
+    (pair) => pair.baseToken?.address?.toLowerCase() === mintLc,
+  );
+
+  if (!matching.length) {
+    return null;
+  }
+
+  matching.sort(
+    (a, b) => toFiniteNumber(b.volume?.h24) - toFiniteNumber(a.volume?.h24),
+  );
+
+  return matching[0] ?? null;
+}
+
+async function fetchDexScreenerMetadata(
+  mint: string,
+): Promise<DexScreenerTokenMetadata | null> {
+  const url = `${DEXSCREENER_API_BASE_URL}/tokens/v1/solana/${encodeURIComponent(mint)}`;
+
+  return withRetry(
+    async () => {
+      const response = await fetchWithTimeout(
+        url,
+        {
+          method: "GET",
+          headers: {
+            Accept: "application/json",
+          },
+        },
+        8_000,
+      );
+
+      if (response.status === 404) {
+        return null;
+      }
+
+      if (!response.ok) {
+        const message = `DexScreener metadata request failed (${response.status}) for mint ${mint}`;
+        if (isRetryableHttpStatus(response.status)) {
+          throw new RetryableError(message);
+        }
+        return null;
+      }
+
+      try {
+        const raw = (await response.json()) as unknown;
+        if (!Array.isArray(raw)) {
+          return null;
+        }
+
+        const pair = selectBestDexScreenerPair(
+          mint,
+          raw as DexScreenerTokenPairResponse[],
+        );
+        if (!pair) {
+          return null;
+        }
+
+        return {
+          name: sanitizeString(pair.baseToken?.name),
+          symbol: sanitizeString(pair.baseToken?.symbol),
+          isPump: sanitizeString(pair.dexId)?.toLowerCase() === "pumpfun",
+        };
+      } catch {
+        return null;
+      }
+    },
+    {
+      attempts: 3,
+      baseDelayMs: 350,
+      maxDelayMs: 2_500,
+      shouldRetry: (error) =>
+        error instanceof RetryableError ||
+        (error instanceof TypeError && error.message.length > 0),
+    },
+  );
+}
+
 export async function getOrFetchPumpMetadata(
   mint: string,
 ): Promise<PumpTokenMetadata> {
@@ -168,8 +286,24 @@ export async function getOrFetchPumpMetadata(
     pumpfun?.metadata_uri ?? pumpfun?.metadataUri ?? pumpfun?.uri,
   );
 
+  let dexscreener: DexScreenerTokenMetadata | null = null;
+  try {
+    dexscreener = await fetchDexScreenerMetadata(mint);
+  } catch (error) {
+    logger.warn("dexscreener_metadata_fetch_failed", {
+      component: "pump_metadata",
+      stage: "fetch_dexscreener_metadata",
+      mint,
+      errorCode: "dexscreener_metadata_fetch_failed",
+      errorMessage: error instanceof Error ? error.message : "Unknown error",
+    });
+  }
+
   const needsHeliusFallback =
-    !pumpfunName || !pumpfunSymbol || !pumpfunImage || !pumpfunDescription;
+    (!pumpfunName && !dexscreener?.name) ||
+    (!pumpfunSymbol && !dexscreener?.symbol) ||
+    !pumpfunImage ||
+    !pumpfunDescription;
 
   let heliusName: string | null = null;
   let heliusSymbol: string | null = null;
@@ -197,8 +331,8 @@ export async function getOrFetchPumpMetadata(
     }
   }
 
-  const name = pumpfunName ?? heliusName ?? mint.slice(0, 6);
-  const symbol = pumpfunSymbol ?? heliusSymbol ?? "UNKNOWN";
+  const name = pumpfunName ?? dexscreener?.name ?? heliusName ?? mint.slice(0, 6);
+  const symbol = pumpfunSymbol ?? dexscreener?.symbol ?? heliusSymbol ?? "UNKNOWN";
   const image = pumpfunImage ?? heliusImage ?? null;
   const description = pumpfunDescription ?? heliusDescription ?? null;
   const jsonUri = pumpfunJsonUri ?? heliusJsonUri ?? undefined;
@@ -231,6 +365,7 @@ export async function getOrFetchPumpMetadata(
     description,
     isPump:
       Boolean(pumpfun) ||
+      Boolean(dexscreener?.isPump) ||
       inferPumpSignal({ name, symbol, image, description, jsonUri }),
   };
 }

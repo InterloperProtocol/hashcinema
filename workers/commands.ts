@@ -4,6 +4,7 @@ import {
   sweepDedicatedPaymentAddresses,
   SweepSummary,
 } from "./sweep-payments";
+import { retryFailedJob, RetryFailedJobResult } from "@/lib/jobs/retry";
 
 export interface WorkerCommandPayload {
   jobId?: string;
@@ -20,4 +21,14 @@ export async function executeSweepCommand(
   }
 
   return sweepDedicatedPaymentAddresses(payload.limit);
+}
+
+export async function executeRetryFailedJobCommand(
+  payload: WorkerCommandPayload,
+): Promise<RetryFailedJobResult> {
+  if (typeof payload.jobId !== "string" || payload.jobId.trim().length === 0) {
+    throw new Error("Missing jobId");
+  }
+
+  return retryFailedJob(payload.jobId.trim());
 }

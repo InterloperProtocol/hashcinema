@@ -70,6 +70,7 @@ export default function JobPage() {
   const [video, setVideo] = useState<VideoDocument | null>(null);
   const [payment, setPayment] = useState<PaymentInstructions | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [isRetrying, setIsRetrying] = useState(false);
 
   const loadJob = useCallback(async (): Promise<JobDocument | null> => {
     const response = await fetch(`/api/jobs/${jobId}`, { cache: "no-store" });
@@ -138,6 +139,33 @@ export default function JobPage() {
   }, [loadJob]);
 
   const isComplete = job?.status === "complete";
+  const retryFailedJob = useCallback(async () => {
+    setIsRetrying(true);
+    setError(null);
+    try {
+      const response = await fetch(`/api/jobs/${jobId}/retry`, {
+        method: "POST",
+      });
+      const payload = (await response.json()) as {
+        ok?: boolean;
+        error?: string;
+        message?: string;
+      };
+
+      if (!response.ok || !payload.ok) {
+        throw new Error(payload.message ?? payload.error ?? "Failed to retry job.");
+      }
+
+      window.location.reload();
+    } catch (retryError) {
+      setError(
+        retryError instanceof Error ? retryError.message : "Failed to retry job.",
+      );
+    } finally {
+      setIsRetrying(false);
+    }
+  }, [jobId]);
+
   const shareUrl = useMemo(() => {
     if (typeof window === "undefined") return "";
     const publicUrl = `${window.location.origin}/job/${jobId}`;
@@ -154,22 +182,24 @@ export default function JobPage() {
           <p className="text-xs uppercase tracking-[0.25em] text-cyan-300">
             HASHCINEMA JOB
           </p>
-          <h1 className="mt-2 text-2xl font-semibold">Job {jobId}</h1>
+          <h1 className="mt-2 break-all text-2xl font-semibold">Job {jobId}</h1>
           {job ? (
             <div className="mt-4 grid gap-2 text-sm text-zinc-300 md:grid-cols-2">
               <p>Status: {statusLabel(job.status, job.progress)}</p>
               <p>Package: {job.packageType}</p>
               <p>Price: {job.priceSol} SOL</p>
-              <p>Wallet: {job.wallet}</p>
+              <p className="break-all">Wallet: {job.wallet}</p>
               <p>Progress: {job.progress}</p>
-              <p>Tx: {job.txSignature ?? "Not detected yet"}</p>
+              <p className="break-all md:col-span-2">
+                Tx: {job.txSignature ?? "Not detected yet"}
+              </p>
             </div>
           ) : (
             <p className="mt-3 text-sm text-zinc-400">Loading job...</p>
           )}
 
           {error ? (
-            <p className="mt-4 rounded-lg border border-red-400/30 bg-red-500/10 px-3 py-2 text-sm text-red-200">
+            <p className="mt-4 whitespace-pre-wrap break-words rounded-lg border border-red-400/30 bg-red-500/10 px-3 py-2 text-sm text-red-200">
               {error}
             </p>
           ) : null}
@@ -181,9 +211,19 @@ export default function JobPage() {
           ) : null}
 
           {job?.status === "failed" ? (
-            <p className="mt-4 rounded-lg border border-red-400/30 bg-red-500/10 px-3 py-2 text-sm text-red-200">
-              {job.errorMessage ?? "The job failed during generation."}
-            </p>
+            <div className="mt-4 space-y-3">
+              <p className="whitespace-pre-wrap break-words rounded-lg border border-red-400/30 bg-red-500/10 px-3 py-2 text-sm text-red-200">
+                {job.errorMessage ?? "The job failed during generation."}
+              </p>
+              <button
+                type="button"
+                onClick={retryFailedJob}
+                disabled={isRetrying}
+                className="inline-flex items-center justify-center rounded-lg border border-cyan-500 px-4 py-2 text-sm font-medium text-cyan-200 transition hover:bg-cyan-500/10 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {isRetrying ? "Retrying..." : "Retry Failed Job"}
+              </button>
+            </div>
           ) : null}
         </div>
 

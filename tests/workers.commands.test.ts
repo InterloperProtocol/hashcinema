@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => ({
   buildSweepSummary: vi.fn(),
   sweepDedicatedPaymentAddressForJob: vi.fn(),
   sweepDedicatedPaymentAddresses: vi.fn(),
+  retryFailedJob: vi.fn(),
 }));
 
 vi.mock("@/workers/sweep-payments", () => ({
@@ -12,7 +13,11 @@ vi.mock("@/workers/sweep-payments", () => ({
   sweepDedicatedPaymentAddresses: mocks.sweepDedicatedPaymentAddresses,
 }));
 
-import { executeSweepCommand } from "@/workers/commands";
+vi.mock("@/lib/jobs/retry", () => ({
+  retryFailedJob: mocks.retryFailedJob,
+}));
+
+import { executeRetryFailedJobCommand, executeSweepCommand } from "@/workers/commands";
 
 describe("worker sweep command", () => {
   beforeEach(() => {
@@ -55,5 +60,26 @@ describe("worker sweep command", () => {
     expect(mocks.sweepDedicatedPaymentAddresses).toHaveBeenCalledWith(25);
     expect(mocks.sweepDedicatedPaymentAddressForJob).not.toHaveBeenCalled();
     expect(result).toEqual(summary);
+  });
+});
+
+describe("worker retry command", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("retries a specific failed job when payload contains jobId", async () => {
+    const retryResult = { jobId: "job-failed", status: "dispatched" };
+    mocks.retryFailedJob.mockResolvedValue(retryResult);
+
+    const result = await executeRetryFailedJobCommand({ jobId: " job-failed " });
+
+    expect(mocks.retryFailedJob).toHaveBeenCalledWith("job-failed");
+    expect(result).toEqual(retryResult);
+  });
+
+  it("throws when payload has no jobId", async () => {
+    await expect(executeRetryFailedJobCommand({})).rejects.toThrow("Missing jobId");
+    expect(mocks.retryFailedJob).not.toHaveBeenCalled();
   });
 });

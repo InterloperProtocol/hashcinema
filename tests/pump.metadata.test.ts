@@ -96,5 +96,46 @@ describe("pump metadata resilience", () => {
     expect(result.image).toBeNull();
     expect(result.description).toBeNull();
   });
-});
 
+  it("uses DexScreener token metadata when Pump.fun fails", async () => {
+    const mint = "H3kZDLodPNMwcy4sRZKBQySqhKZ3c7K3SAphVYnSpump";
+    mocks.fetchWithTimeout.mockImplementation(async (url: string) => {
+      if (url.includes("frontend-api.pump.fun")) {
+        return { ok: false, status: 530 };
+      }
+
+      if (url.includes("api.dexscreener.com/tokens/v1/solana/")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => [
+            {
+              dexId: "pumpfun",
+              baseToken: {
+                address: mint,
+                name: "No Sense Coin",
+                symbol: "NoSense",
+              },
+              volume: { h24: 8536.72 },
+            },
+          ],
+        };
+      }
+
+      return { ok: false, status: 404 };
+    });
+    mocks.getAsset.mockResolvedValue({
+      content: {
+        metadata: {},
+        links: {},
+      },
+    });
+
+    const { getOrFetchPumpMetadata } = await import("@/lib/pump/metadata");
+    const result = await getOrFetchPumpMetadata(mint);
+
+    expect(result.name).toBe("No Sense Coin");
+    expect(result.symbol).toBe("NoSense");
+    expect(result.isPump).toBe(true);
+  });
+});

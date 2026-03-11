@@ -1,7 +1,7 @@
 import { dispatchDueJobs } from "@/lib/jobs/dispatch";
 import { logger } from "@/lib/logging/logger";
 import { createServer } from "http";
-import { executeSweepCommand } from "./commands";
+import { executeRetryFailedJobCommand, executeSweepCommand } from "./commands";
 import { processJob } from "./process-job";
 
 class BodyTooLargeError extends Error {
@@ -84,6 +84,7 @@ const server = createServer(async (request, response) => {
   const pathname = url.pathname;
   const isJobRoute = request.method === "POST" && pathname === "/";
   const isSweepRoute = request.method === "POST" && pathname === "/sweep";
+  const isRetryRoute = request.method === "POST" && pathname === "/retry-job";
   const isDispatchRoute = request.method === "POST" && pathname === "/dispatch";
   const isHealthRoute = request.method === "GET" && pathname === "/healthz";
 
@@ -92,7 +93,7 @@ const server = createServer(async (request, response) => {
     return;
   }
 
-  if (!isJobRoute && !isSweepRoute && !isDispatchRoute) {
+  if (!isJobRoute && !isSweepRoute && !isRetryRoute && !isDispatchRoute) {
     sendJson(response, 404, { error: "Not found" });
     return;
   }
@@ -138,6 +139,24 @@ const server = createServer(async (request, response) => {
     } catch (error) {
       sendJson(response, 500, {
         error: error instanceof Error ? error.message : "Dispatch failure",
+      });
+      return;
+    }
+  }
+
+  if (isRetryRoute) {
+    if (!payload.jobId || typeof payload.jobId !== "string") {
+      sendJson(response, 400, { error: "Missing jobId" });
+      return;
+    }
+
+    try {
+      const result = await executeRetryFailedJobCommand(payload);
+      sendJson(response, 200, { ok: true, ...result });
+      return;
+    } catch (error) {
+      sendJson(response, 500, {
+        error: error instanceof Error ? error.message : "Retry failure",
       });
       return;
     }
