@@ -1,4 +1,4 @@
-import { triggerFailedJobRetry } from "@/lib/jobs/trigger-retry";
+import { retryFailedJob } from "@/lib/jobs/retry";
 import { enforceRateLimit } from "@/lib/security/rate-limit";
 import { getRequestIp } from "@/lib/security/request-ip";
 import { NextRequest, NextResponse } from "next/server";
@@ -45,7 +45,7 @@ export async function POST(request: NextRequest, context: Context) {
       );
     }
 
-    const result = await triggerFailedJobRetry(normalizedJobId);
+    const result = await retryFailedJob(normalizedJobId);
     if (result.status === "skipped") {
       return NextResponse.json(
         { ok: false, error: "Retry skipped", ...result },
@@ -62,4 +62,3 @@ export async function POST(request: NextRequest, context: Context) {
     );
   }
 }
-

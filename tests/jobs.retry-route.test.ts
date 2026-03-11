@@ -3,13 +3,13 @@ import { NextRequest } from "next/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
-  triggerFailedJobRetry: vi.fn(),
+  retryFailedJob: vi.fn(),
   enforceRateLimit: vi.fn(),
   getRequestIp: vi.fn(),
 }));
 
-vi.mock("@/lib/jobs/trigger-retry", () => ({
-  triggerFailedJobRetry: mocks.triggerFailedJobRetry,
+vi.mock("@/lib/jobs/retry", () => ({
+  retryFailedJob: mocks.retryFailedJob,
 }));
 
 vi.mock("@/lib/security/rate-limit", () => ({
@@ -34,7 +34,7 @@ describe("POST /api/jobs/[jobId]/retry", () => {
   });
 
   it("returns ok when retry is dispatched", async () => {
-    mocks.triggerFailedJobRetry.mockResolvedValue({
+    mocks.retryFailedJob.mockResolvedValue({
       jobId: "b25f5355-5392-4dd0-b9c0-f644222ceba2",
       status: "dispatched",
     });
@@ -46,13 +46,13 @@ describe("POST /api/jobs/[jobId]/retry", () => {
 
     expect(response.status).toBe(200);
     expect(body.ok).toBe(true);
-    expect(mocks.triggerFailedJobRetry).toHaveBeenCalledWith(
+    expect(mocks.retryFailedJob).toHaveBeenCalledWith(
       "b25f5355-5392-4dd0-b9c0-f644222ceba2",
     );
   });
 
   it("returns 409 when retry is safely skipped", async () => {
-    mocks.triggerFailedJobRetry.mockResolvedValue({
+    mocks.retryFailedJob.mockResolvedValue({
       jobId: "b25f5355-5392-4dd0-b9c0-f644222ceba2",
       status: "skipped",
       reason: "payment_incomplete",
