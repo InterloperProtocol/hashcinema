@@ -509,7 +509,9 @@ export async function prepareFailedJobForRetry(
 ): Promise<FailedJobRetryPreparationResult> {
   return getDb().runTransaction(async (tx) => {
     const jobRef = jobsCollection().doc(jobId);
+    const outboxRef = dispatchOutboxCollection().doc(jobId);
     const jobSnap = await tx.get(jobRef);
+    const outboxSnap = await tx.get(outboxRef);
     if (!jobSnap.exists) {
       return { status: "job_not_found" };
     }
@@ -538,17 +540,14 @@ export async function prepareFailedJobForRetry(
       errorMessage: null,
       updatedAt: now,
     };
-
-    tx.set(jobRef, updated, { merge: true });
-
-    const outboxRef = dispatchOutboxCollection().doc(jobId);
-    const outboxSnap = await tx.get(outboxRef);
     const existing = outboxSnap.exists
       ? normalizeDispatchOutboxDocument(
           jobId,
           outboxSnap.data() as Partial<JobDispatchOutboxDocument>,
         )
       : null;
+
+    tx.set(jobRef, updated, { merge: true });
 
     tx.set(
       outboxRef,
