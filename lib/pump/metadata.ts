@@ -1,5 +1,6 @@
 import { getHeliusClient } from "@/lib/helius/client";
 import { getPumpMetadata, upsertPumpMetadata } from "@/lib/jobs/repository";
+import { logger } from "@/lib/logging/logger";
 import { fetchWithTimeout } from "@/lib/network/http";
 import {
   isRetryableHttpStatus,
@@ -144,7 +145,19 @@ export async function getOrFetchPumpMetadata(
     };
   }
 
-  const pumpfun = await fetchPumpFunMetadata(mint);
+  let pumpfun: PumpFunCoinResponse | null = null;
+  try {
+    pumpfun = await fetchPumpFunMetadata(mint);
+  } catch (error) {
+    logger.warn("pumpfun_metadata_fetch_failed", {
+      component: "pump_metadata",
+      stage: "fetch_pumpfun_metadata",
+      mint,
+      errorCode: "pumpfun_metadata_fetch_failed",
+      errorMessage: error instanceof Error ? error.message : "Unknown error",
+    });
+  }
+
   const pumpfunName = sanitizeString(pumpfun?.name);
   const pumpfunSymbol = sanitizeString(pumpfun?.symbol);
   const pumpfunImage = normalizeMaybeUrl(
@@ -165,13 +178,23 @@ export async function getOrFetchPumpMetadata(
   let heliusJsonUri: string | null = null;
 
   if (!pumpfun || needsHeliusFallback) {
-    const helius = getHeliusClient();
-    const asset = await helius.getAsset({ id: mint });
-    heliusName = sanitizeString(asset.content?.metadata?.name);
-    heliusSymbol = sanitizeString(asset.content?.metadata?.symbol);
-    heliusImage = normalizeMaybeUrl(asset.content?.links?.image);
-    heliusDescription = sanitizeString(asset.content?.metadata?.description);
-    heliusJsonUri = normalizeMaybeUrl(asset.content?.json_uri);
+    try {
+      const helius = getHeliusClient();
+      const asset = await helius.getAsset({ id: mint });
+      heliusName = sanitizeString(asset.content?.metadata?.name);
+      heliusSymbol = sanitizeString(asset.content?.metadata?.symbol);
+      heliusImage = normalizeMaybeUrl(asset.content?.links?.image);
+      heliusDescription = sanitizeString(asset.content?.metadata?.description);
+      heliusJsonUri = normalizeMaybeUrl(asset.content?.json_uri);
+    } catch (error) {
+      logger.warn("helius_asset_metadata_fetch_failed", {
+        component: "pump_metadata",
+        stage: "fetch_helius_asset_metadata",
+        mint,
+        errorCode: "helius_asset_metadata_fetch_failed",
+        errorMessage: error instanceof Error ? error.message : "Unknown error",
+      });
+    }
   }
 
   const name = pumpfunName ?? heliusName ?? mint.slice(0, 6);
@@ -188,7 +211,17 @@ export async function getOrFetchPumpMetadata(
     description,
     cachedAt: new Date().toISOString(),
   };
-  await upsertPumpMetadata(doc);
+  try {
+    await upsertPumpMetadata(doc);
+  } catch (error) {
+    logger.warn("pump_metadata_cache_write_failed", {
+      component: "pump_metadata",
+      stage: "cache_write",
+      mint,
+      errorCode: "pump_metadata_cache_write_failed",
+      errorMessage: error instanceof Error ? error.message : "Unknown error",
+    });
+  }
 
   return {
     mint,

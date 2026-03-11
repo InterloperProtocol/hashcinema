@@ -89,6 +89,16 @@ function normalizeJobDocument(raw: JobDocument): JobDocument {
   };
 }
 
+export function isSweepEligibleStatus(status: JobStatus): boolean {
+  return (
+    status === "payment_detected" ||
+    status === "payment_confirmed" ||
+    status === "processing" ||
+    status === "complete" ||
+    status === "failed"
+  );
+}
+
 function jobsCollection() {
   return getDb().collection("jobs");
 }
@@ -242,14 +252,7 @@ export async function listSweepCandidateJobs(limit: number): Promise<JobDocument
         return false;
       }
       seen.add(job.jobId);
-      return (
-        !!job.paymentAddress &&
-        !!job.paymentIndex &&
-        (job.status === "payment_detected" ||
-          job.status === "payment_confirmed" ||
-          job.status === "processing" ||
-          job.status === "complete")
-      );
+      return !!job.paymentAddress && !!job.paymentIndex && isSweepEligibleStatus(job.status);
     })
     .sort((a, b) => isoToMs(a.lastSweepAt) - isoToMs(b.lastSweepAt))
     .slice(0, limit);
