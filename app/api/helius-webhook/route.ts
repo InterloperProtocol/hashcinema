@@ -8,6 +8,7 @@ import {
   HeliusEnhancedWebhookTransaction,
 } from "@/lib/payments/webhook";
 import { verifyOnChainPayment } from "@/lib/payments/onchain-verify";
+import { triggerInstantSweepForJob } from "@/lib/payments/trigger-sweep";
 import { enforceRateLimit } from "@/lib/security/rate-limit";
 import { getRequestIp } from "@/lib/security/request-ip";
 import { isAuthorizedWebhookRequest } from "@/lib/security/webhook-auth";
@@ -172,6 +173,10 @@ export async function POST(request: NextRequest) {
           });
           continue;
         }
+
+        void triggerInstantSweepForJob(job.jobId).catch(() => {
+          // The helper already logs failures; this catch avoids unhandled rejections.
+        });
 
         const remainingLamports = Math.max(
           payment.job.requiredLamports - payment.job.receivedLamports,

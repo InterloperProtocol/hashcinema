@@ -1,6 +1,7 @@
-﻿"use client";
+"use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import Image from "next/image";
 
 interface PaymentInstructionsCardProps {
   amountSol: number;
@@ -38,16 +39,55 @@ function fallbackCopy(value: string): boolean {
 export function PaymentInstructionsCard(props: PaymentInstructionsCardProps) {
   const [copyError, setCopyError] = useState<string | null>(null);
   const [copySuccess, setCopySuccess] = useState<string | null>(null);
+  const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
+  const [qrError, setQrError] = useState<string | null>(null);
 
   const payableSol = props.remainingSol ?? props.amountSol;
+  const payableAmount = formatSol(payableSol);
+  const qrPayload = useMemo(
+    () =>
+      `solana:${props.paymentAddress}?amount=${encodeURIComponent(payableAmount)}`,
+    [props.paymentAddress, payableAmount],
+  );
 
   const copyPayload = [
     "HASHCINEMA manual payment",
     `Address: ${props.paymentAddress}`,
-    `Amount (SOL): ${formatSol(payableSol)}`,
+    `Amount (SOL): ${payableAmount}`,
     "Network: Solana",
     "Send exactly the amount above.",
   ].join("\n");
+
+  useEffect(() => {
+    let cancelled = false;
+    setQrDataUrl(null);
+    setQrError(null);
+
+    async function buildQrCode() {
+      try {
+        const QRCode = await import("qrcode");
+        const dataUrl = await QRCode.toDataURL(qrPayload, {
+          errorCorrectionLevel: "M",
+          margin: 1,
+          width: 256,
+        });
+        if (!cancelled) {
+          setQrDataUrl(dataUrl);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setQrError(
+            error instanceof Error ? error.message : "Failed to generate QR code.",
+          );
+        }
+      }
+    }
+
+    void buildQrCode();
+    return () => {
+      cancelled = true;
+    };
+  }, [qrPayload]);
 
   async function copy(label: string, value: string) {
     let copied = false;
@@ -115,10 +155,10 @@ export function PaymentInstructionsCard(props: PaymentInstructionsCardProps) {
 
         <div className="rounded-xl border border-zinc-800 bg-zinc-950/70 p-3">
           <p className="text-xs uppercase tracking-[0.16em] text-zinc-400">Amount (SOL)</p>
-          <p className="mt-1 break-all text-sm text-zinc-100">{formatSol(payableSol)}</p>
+          <p className="mt-1 break-all text-sm text-zinc-100">{payableAmount}</p>
           <button
             type="button"
-            onClick={() => void copy("Amount", formatSol(payableSol))}
+            onClick={() => void copy("Amount", payableAmount)}
             className="mt-2 rounded-md border border-zinc-700 px-3 py-1 text-xs text-zinc-200 hover:bg-zinc-800"
           >
             Copy amount
@@ -156,10 +196,26 @@ export function PaymentInstructionsCard(props: PaymentInstructionsCardProps) {
 
       <div className="rounded-xl border border-zinc-800 bg-zinc-950/70 p-3">
         <p className="mb-3 text-xs uppercase tracking-[0.16em] text-zinc-400">QR</p>
-        <p className="text-sm leading-relaxed text-zinc-300">
-          QR rendering is disabled to avoid sending payment addresses to third-party
-          services.
-        </p>
+        {qrDataUrl ? (
+          <div className="space-y-3">
+            <Image
+              src={qrDataUrl}
+              alt="Payment QR code"
+              width={224}
+              height={224}
+              unoptimized
+              className="mx-auto h-56 w-56 rounded-md border border-zinc-800 bg-white p-2"
+            />
+            <p className="text-xs leading-relaxed text-zinc-300">
+              Scan in your Solana wallet app and verify both address and amount before
+              sending.
+            </p>
+          </div>
+        ) : qrError ? (
+          <p className="text-sm leading-relaxed text-red-200">QR unavailable: {qrError}</p>
+        ) : (
+          <p className="text-sm leading-relaxed text-zinc-300">Generating QR code...</p>
+        )}
       </div>
     </section>
   );

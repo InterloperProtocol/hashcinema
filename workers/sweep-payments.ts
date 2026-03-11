@@ -1,6 +1,7 @@
 import { getEnv } from "@/lib/env";
 import { getSolanaConnection } from "@/lib/helius/connection";
 import {
+  getJob,
   listSweepCandidateJobs,
   markSweepResult,
 } from "@/lib/jobs/repository";
@@ -41,6 +42,30 @@ export function computeSweepableLamports(
     return 0;
   }
   return transferable;
+}
+
+export function buildSweepSummary(
+  scanned: number,
+  results: SweepJobResult[],
+): SweepSummary {
+  return {
+    scanned,
+    swept: results.filter((result) => result.status === "swept").length,
+    pending: results.filter((result) => result.status === "pending").length,
+    failed: results.filter((result) => result.status === "failed").length,
+    results,
+  };
+}
+
+function getSweepRuntimeConfig(): {
+  minLamports: number;
+  revenueWallet: PublicKey;
+} {
+  const env = getEnv();
+  return {
+    minLamports: Math.max(0, env.SWEEP_MIN_LAMPORTS),
+    revenueWallet: new PublicKey(getRevenueWalletAddress()),
+  };
 }
 
 async function sweepSingleJob(params: {
@@ -186,6 +211,36 @@ async function sweepSingleJob(params: {
   }
 }
 
+export async function sweepDedicatedPaymentAddressForJob(
+  jobId: string,
+): Promise<SweepJobResult> {
+  const { minLamports, revenueWallet } = getSweepRuntimeConfig();
+  const job = await getJob(jobId);
+  if (!job) {
+    return {
+      jobId,
+      status: "failed",
+      reason: "job_not_found",
+    };
+  }
+
+  if (!job.paymentIndex || !job.paymentAddress) {
+    return {
+      jobId,
+      status: "failed",
+      reason: "missing_payment_routing",
+    };
+  }
+
+  return sweepSingleJob({
+    jobId: job.jobId,
+    paymentIndex: job.paymentIndex,
+    paymentAddress: job.paymentAddress,
+    minLamports,
+    revenueWallet,
+  });
+}
+
 export async function sweepDedicatedPaymentAddresses(
   requestedLimit?: number,
 ): Promise<SweepSummary> {
@@ -199,8 +254,7 @@ export async function sweepDedicatedPaymentAddresses(
         : env.SWEEP_BATCH_LIMIT,
     ),
   );
-  const minLamports = Math.max(0, env.SWEEP_MIN_LAMPORTS);
-  const revenueWallet = new PublicKey(getRevenueWalletAddress());
+  const { minLamports, revenueWallet } = getSweepRuntimeConfig();
   const candidates = await listSweepCandidateJobs(limit);
 
   logger.info("sweep_run_started", {
@@ -227,13 +281,7 @@ export async function sweepDedicatedPaymentAddresses(
     results.push(result);
   }
 
-  const summary: SweepSummary = {
-    scanned: candidates.length,
-    swept: results.filter((result) => result.status === "swept").length,
-    pending: results.filter((result) => result.status === "pending").length,
-    failed: results.filter((result) => result.status === "failed").length,
-    results,
-  };
+  const summary = buildSweepSummary(candidates.length, results);
 
   logger.info("sweep_run_completed", {
     component: "worker",

@@ -245,7 +245,8 @@ export async function listSweepCandidateJobs(limit: number): Promise<JobDocument
       return (
         !!job.paymentAddress &&
         !!job.paymentIndex &&
-        (job.status === "payment_confirmed" ||
+        (job.status === "payment_detected" ||
+          job.status === "payment_confirmed" ||
           job.status === "processing" ||
           job.status === "complete")
       );

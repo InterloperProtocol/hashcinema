@@ -1,8 +1,8 @@
 import { dispatchDueJobs } from "@/lib/jobs/dispatch";
 import { logger } from "@/lib/logging/logger";
 import { createServer } from "http";
+import { executeSweepCommand } from "./commands";
 import { processJob } from "./process-job";
-import { sweepDedicatedPaymentAddresses } from "./sweep-payments";
 
 class BodyTooLargeError extends Error {
   constructor() {
@@ -119,7 +119,7 @@ const server = createServer(async (request, response) => {
 
   if (isSweepRoute) {
     try {
-      const summary = await sweepDedicatedPaymentAddresses(payload.limit);
+      const summary = await executeSweepCommand(payload);
       sendJson(response, 200, { ok: true, ...summary });
       return;
     } catch (error) {

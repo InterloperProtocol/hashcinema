@@ -111,6 +111,7 @@ FFMPEG_PATH=ffmpeg
   - validates webhook shared secret
   - verifies amount/destination from on-chain RPC data (not webhook body)
   - cumulatively settles partial payments by destination address until required amount is met
+  - asynchronously triggers instant worker sweep for the paid job on every non-duplicate transfer
   - idempotently confirms payment and starts worker
 - `GET /api/report/[jobId]`
 - `GET /api/video/[jobId]`
@@ -121,7 +122,7 @@ Video backend contract reference:
 ## Payment Flow
 
 1. User creates job
-2. UI shows dedicated payment address + amount + copy/paste payload + optional address QR
+2. UI shows dedicated payment address + amount + copy/paste payload + scannable address QR
 3. User sends SOL to the dedicated address (manual send or scan)
 4. Helius webhook hits `/api/helius-webhook`
 5. Backend verifies:
@@ -132,6 +133,8 @@ Video backend contract reference:
 6. Job transitions to `payment_confirmed` and enqueues durable dispatch
 7. Worker dispatch is retried until accepted, then status becomes `processing`
 8. Job finishes at `complete`
+9. Each accepted transfer triggers non-blocking instant sweep attempt to revenue wallet
+10. Scheduler-based sweep remains as fallback durability
 
 ## Worker Pipeline
 
@@ -144,6 +147,7 @@ Video backend contract reference:
 7. mark complete
 8. worker `/dispatch` retries pending processing dispatches
 9. worker `/sweep` can be triggered by Cloud Scheduler to sweep dedicated payment addresses to revenue wallet
+10. worker `/sweep` accepts optional `{ "jobId": "<job-id>" }` to sweep one job immediately
 
 ## Local Development
 
