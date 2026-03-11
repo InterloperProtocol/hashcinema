@@ -12,6 +12,10 @@ import { PumpMetadataCacheDocument } from "@/lib/types/domain";
 const CACHE_MAX_AGE_MS = 1000 * 60 * 60 * 24;
 const PUMP_FUN_API_BASE_URL = "https://frontend-api-v3.pump.fun";
 const DEXSCREENER_API_BASE_URL = "https://api.dexscreener.com";
+const METADATA_HTTP_TIMEOUT_MS = 6_000;
+const METADATA_HTTP_RETRY_ATTEMPTS = 2;
+const HELIUS_ASSET_TIMEOUT_MS = 6_000;
+const HELIUS_ASSET_RETRY_ATTEMPTS = 2;
 
 interface PumpFunCoinResponse {
   mint?: string;
@@ -42,6 +46,14 @@ interface DexScreenerTokenMetadata {
   name: string | null;
   symbol: string | null;
   isPump: boolean;
+}
+
+interface HeliusAssetMetadata {
+  name: string | null;
+  symbol: string | null;
+  image: string | null;
+  description: string | null;
+  jsonUri: string | null;
 }
 
 export interface PumpTokenMetadata {
@@ -108,6 +120,27 @@ function normalizeMaybeUrl(input: unknown): string | null {
   }
 }
 
+async function withPromiseTimeout<T>(input: {
+  operation: () => Promise<T>;
+  timeoutMs: number;
+  timeoutMessage: string;
+}): Promise<T> {
+  let timeoutHandle: NodeJS.Timeout | null = null;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeoutHandle = setTimeout(() => {
+      reject(new RetryableError(input.timeoutMessage));
+    }, input.timeoutMs);
+  });
+
+  try {
+    return await Promise.race([input.operation(), timeoutPromise]);
+  } finally {
+    if (timeoutHandle) {
+      clearTimeout(timeoutHandle);
+    }
+  }
+}
+
 async function fetchPumpFunMetadata(mint: string): Promise<PumpFunCoinResponse | null> {
   const url = `${PUMP_FUN_API_BASE_URL}/coins/${encodeURIComponent(mint)}`;
 
@@ -121,7 +154,7 @@ async function fetchPumpFunMetadata(mint: string): Promise<PumpFunCoinResponse |
             Accept: "application/json",
           },
         },
-        8_000,
+        METADATA_HTTP_TIMEOUT_MS,
       );
 
       if (response.status === 404) {
@@ -143,7 +176,7 @@ async function fetchPumpFunMetadata(mint: string): Promise<PumpFunCoinResponse |
       }
     },
     {
-      attempts: 3,
+      attempts: METADATA_HTTP_RETRY_ATTEMPTS,
       baseDelayMs: 350,
       maxDelayMs: 2_500,
       shouldRetry: (error) =>
@@ -203,7 +236,7 @@ async function fetchDexScreenerMetadata(
             Accept: "application/json",
           },
         },
-        8_000,
+        METADATA_HTTP_TIMEOUT_MS,
       );
 
       if (response.status === 404) {
@@ -242,8 +275,40 @@ async function fetchDexScreenerMetadata(
       }
     },
     {
-      attempts: 3,
+      attempts: METADATA_HTTP_RETRY_ATTEMPTS,
       baseDelayMs: 350,
+      maxDelayMs: 2_500,
+      shouldRetry: (error) =>
+        error instanceof RetryableError ||
+        (error instanceof TypeError && error.message.length > 0),
+    },
+  );
+}
+
+async function fetchHeliusAssetMetadata(
+  mint: string,
+): Promise<HeliusAssetMetadata | null> {
+  const helius = getHeliusClient();
+
+  return withRetry(
+    async () => {
+      const asset = await withPromiseTimeout({
+        operation: () => helius.getAsset({ id: mint }),
+        timeoutMs: HELIUS_ASSET_TIMEOUT_MS,
+        timeoutMessage: `Helius asset metadata timeout after ${HELIUS_ASSET_TIMEOUT_MS}ms for mint ${mint}`,
+      });
+
+      return {
+        name: sanitizeString(asset.content?.metadata?.name),
+        symbol: sanitizeString(asset.content?.metadata?.symbol),
+        image: normalizeMaybeUrl(asset.content?.links?.image),
+        description: sanitizeString(asset.content?.metadata?.description),
+        jsonUri: normalizeMaybeUrl(asset.content?.json_uri),
+      };
+    },
+    {
+      attempts: HELIUS_ASSET_RETRY_ATTEMPTS,
+      baseDelayMs: 400,
       maxDelayMs: 2_500,
       shouldRetry: (error) =>
         error instanceof RetryableError ||
@@ -272,16 +337,40 @@ export async function getOrFetchPumpMetadata(
     };
   }
 
+  const [pumpfunResult, dexscreenerResult] = await Promise.allSettled([
+    fetchPumpFunMetadata(mint),
+    fetchDexScreenerMetadata(mint),
+  ]);
+
   let pumpfun: PumpFunCoinResponse | null = null;
-  try {
-    pumpfun = await fetchPumpFunMetadata(mint);
-  } catch (error) {
+  if (pumpfunResult.status === "fulfilled") {
+    pumpfun = pumpfunResult.value;
+  } else {
     logger.warn("pumpfun_metadata_fetch_failed", {
       component: "pump_metadata",
       stage: "fetch_pumpfun_metadata",
       mint,
       errorCode: "pumpfun_metadata_fetch_failed",
-      errorMessage: error instanceof Error ? error.message : "Unknown error",
+      errorMessage:
+        pumpfunResult.reason instanceof Error
+          ? pumpfunResult.reason.message
+          : "Unknown error",
+    });
+  }
+
+  let dexscreener: DexScreenerTokenMetadata | null = null;
+  if (dexscreenerResult.status === "fulfilled") {
+    dexscreener = dexscreenerResult.value;
+  } else {
+    logger.warn("dexscreener_metadata_fetch_failed", {
+      component: "pump_metadata",
+      stage: "fetch_dexscreener_metadata",
+      mint,
+      errorCode: "dexscreener_metadata_fetch_failed",
+      errorMessage:
+        dexscreenerResult.reason instanceof Error
+          ? dexscreenerResult.reason.message
+          : "Unknown error",
     });
   }
 
@@ -295,40 +384,17 @@ export async function getOrFetchPumpMetadata(
     pumpfun?.metadata_uri ?? pumpfun?.metadataUri ?? pumpfun?.uri,
   );
 
-  let dexscreener: DexScreenerTokenMetadata | null = null;
-  try {
-    dexscreener = await fetchDexScreenerMetadata(mint);
-  } catch (error) {
-    logger.warn("dexscreener_metadata_fetch_failed", {
-      component: "pump_metadata",
-      stage: "fetch_dexscreener_metadata",
-      mint,
-      errorCode: "dexscreener_metadata_fetch_failed",
-      errorMessage: error instanceof Error ? error.message : "Unknown error",
-    });
-  }
-
   const needsHeliusFallback =
     (!pumpfunName && !dexscreener?.name) ||
     (!pumpfunSymbol && !dexscreener?.symbol) ||
     !pumpfunImage ||
     !pumpfunDescription;
 
-  let heliusName: string | null = null;
-  let heliusSymbol: string | null = null;
-  let heliusImage: string | null = null;
-  let heliusDescription: string | null = null;
-  let heliusJsonUri: string | null = null;
+  let helius: HeliusAssetMetadata | null = null;
 
   if (!pumpfun || needsHeliusFallback) {
     try {
-      const helius = getHeliusClient();
-      const asset = await helius.getAsset({ id: mint });
-      heliusName = sanitizeString(asset.content?.metadata?.name);
-      heliusSymbol = sanitizeString(asset.content?.metadata?.symbol);
-      heliusImage = normalizeMaybeUrl(asset.content?.links?.image);
-      heliusDescription = sanitizeString(asset.content?.metadata?.description);
-      heliusJsonUri = normalizeMaybeUrl(asset.content?.json_uri);
+      helius = await fetchHeliusAssetMetadata(mint);
     } catch (error) {
       logger.warn("helius_asset_metadata_fetch_failed", {
         component: "pump_metadata",
@@ -340,11 +406,11 @@ export async function getOrFetchPumpMetadata(
     }
   }
 
-  const name = pumpfunName ?? dexscreener?.name ?? heliusName ?? mint.slice(0, 6);
-  const symbol = pumpfunSymbol ?? dexscreener?.symbol ?? heliusSymbol ?? "UNKNOWN";
-  const image = pumpfunImage ?? heliusImage ?? null;
-  const description = pumpfunDescription ?? heliusDescription ?? null;
-  const jsonUri = pumpfunJsonUri ?? heliusJsonUri ?? undefined;
+  const name = pumpfunName ?? dexscreener?.name ?? helius?.name ?? mint.slice(0, 6);
+  const symbol = pumpfunSymbol ?? dexscreener?.symbol ?? helius?.symbol ?? "UNKNOWN";
+  const image = pumpfunImage ?? helius?.image ?? null;
+  const description = pumpfunDescription ?? helius?.description ?? null;
+  const jsonUri = pumpfunJsonUri ?? helius?.jsonUri ?? undefined;
 
   const doc: PumpMetadataCacheDocument = {
     mint,

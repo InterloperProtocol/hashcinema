@@ -1,5 +1,6 @@
 import { PUMP_SOURCES } from "@/lib/constants";
-import { getOrFetchPumpMetadata } from "@/lib/pump/metadata";
+import { logger } from "@/lib/logging/logger";
+import { getOrFetchPumpMetadata, PumpTokenMetadata } from "@/lib/pump/metadata";
 import { PumpTrade } from "@/lib/types/domain";
 import { asNumber, toSol } from "@/lib/utils";
 import type {
@@ -8,6 +9,8 @@ import type {
 } from "helius-sdk/enhanced/types";
 
 const SOL_MINT = "So11111111111111111111111111111111111111112";
+const METADATA_CONCURRENCY_LIMIT = 6;
+const METADATA_TIMEOUT_MS = 12_000;
 
 function parseTokenAmount(transfer: EnhancedTokenTransfer): number {
   const raw = asNumber(transfer.tokenAmount);
@@ -20,6 +23,71 @@ function parseTokenAmount(transfer: EnhancedTokenTransfer): number {
   }
 
   return raw;
+}
+
+function createFallbackMetadata(
+  mint: string,
+  hasPumpSource: boolean,
+): PumpTokenMetadata {
+  return {
+    mint,
+    name: mint.slice(0, 6),
+    symbol: "UNKNOWN",
+    image: null,
+    description: null,
+    isPump: hasPumpSource,
+  };
+}
+
+async function withTimeout<T>(input: {
+  operation: () => Promise<T>;
+  timeoutMs: number;
+  timeoutMessage: string;
+}): Promise<T> {
+  let timeoutHandle: NodeJS.Timeout | null = null;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeoutHandle = setTimeout(() => {
+      reject(new Error(input.timeoutMessage));
+    }, input.timeoutMs);
+  });
+
+  try {
+    return await Promise.race([input.operation(), timeoutPromise]);
+  } finally {
+    if (timeoutHandle) {
+      clearTimeout(timeoutHandle);
+    }
+  }
+}
+
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  mapper: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  if (!items.length) {
+    return [];
+  }
+
+  const safeLimit = Math.max(1, Math.min(limit, items.length));
+  const results = new Array<R>(items.length);
+  let nextIndex = 0;
+
+  const workers = Array.from({ length: safeLimit }, async () => {
+    while (true) {
+      const index = nextIndex;
+      nextIndex += 1;
+
+      if (index >= items.length) {
+        return;
+      }
+
+      results[index] = await mapper(items[index]!, index);
+    }
+  });
+
+  await Promise.all(workers);
+  return results;
 }
 
 export async function extractPumpTrades(
@@ -92,11 +160,56 @@ export async function extractPumpTrades(
     }
   }
 
-  const uniqueMints = [...new Set(candidates.map((candidate) => candidate.mint))];
-  const metadataEntries = await Promise.all(
-    uniqueMints.map(
-      async (mint) => [mint, await getOrFetchPumpMetadata(mint)] as const,
-    ),
+  const mintStats = new Map<string, { count: number; hasPumpSource: boolean }>();
+  for (const candidate of candidates) {
+    const existing = mintStats.get(candidate.mint);
+    if (!existing) {
+      mintStats.set(candidate.mint, {
+        count: 1,
+        hasPumpSource: candidate.source === "PUMP_FUN",
+      });
+      continue;
+    }
+
+    existing.count += 1;
+    if (candidate.source === "PUMP_FUN") {
+      existing.hasPumpSource = true;
+    }
+  }
+
+  const uniqueMints = [...mintStats.entries()]
+    .sort((a, b) => b[1].count - a[1].count)
+    .map(([mint]) => mint);
+
+  const metadataEntries = await mapWithConcurrency(
+    uniqueMints,
+    METADATA_CONCURRENCY_LIMIT,
+    async (mint) => {
+      try {
+        const metadata = await withTimeout({
+          operation: () => getOrFetchPumpMetadata(mint),
+          timeoutMs: METADATA_TIMEOUT_MS,
+          timeoutMessage: `Pump metadata timeout after ${METADATA_TIMEOUT_MS}ms for mint ${mint}`,
+        });
+
+        return [mint, metadata] as const;
+      } catch (error) {
+        const fallback = createFallbackMetadata(
+          mint,
+          mintStats.get(mint)?.hasPumpSource === true,
+        );
+
+        logger.warn("pump_metadata_enrichment_failed", {
+          component: "pump_filter",
+          stage: "enrich_pump_metadata",
+          mint,
+          errorCode: "pump_metadata_enrichment_failed",
+          errorMessage: error instanceof Error ? error.message : "Unknown error",
+        });
+
+        return [mint, fallback] as const;
+      }
+    },
   );
   const metadataMap = new Map(metadataEntries);
 

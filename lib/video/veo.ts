@@ -2,6 +2,11 @@ import { round } from "@/lib/utils";
 import { rankTokenMetadataForStory } from "@/lib/tokens/metadata-selection";
 import { GeneratedCinematicScript, WalletStory } from "@/lib/types/domain";
 
+const MAX_PROMPT_CHARS = 9_000;
+const MAX_TOKEN_REFS_IN_PROMPT = 20;
+const MAX_SCENES_IN_PROMPT = 12;
+const MAX_SCENE_TEXT_CHARS = 220;
+
 export interface VeoTokenMetadata {
   mint: string;
   symbol: string;
@@ -52,13 +57,27 @@ function buildTokenMetadata(story: WalletStory): VeoTokenMetadata[] {
   }));
 }
 
+function truncateText(value: string, maxChars: number): string {
+  const trimmed = value.trim();
+  if (trimmed.length <= maxChars) {
+    return trimmed;
+  }
+  return `${trimmed.slice(0, Math.max(0, maxChars - 3))}...`;
+}
+
 function buildPrompt(input: {
   story: WalletStory;
   script: GeneratedCinematicScript;
   tokenMetadata: VeoTokenMetadata[];
 }): string {
   const walletShort = `${input.story.wallet.slice(0, 4)}...${input.story.wallet.slice(-4)}`;
+  const limitedTokenMetadata = input.tokenMetadata.slice(0, MAX_TOKEN_REFS_IN_PROMPT);
+  const omittedTokenCount = Math.max(
+    0,
+    input.tokenMetadata.length - limitedTokenMetadata.length,
+  );
   const tokenRefs = input.tokenMetadata
+    .slice(0, MAX_TOKEN_REFS_IN_PROMPT)
     .map(
       (token) =>
         `${token.symbol}(${token.tradeCount} trades, ${token.solVolume} SOL volume, image=${token.imageUrl})`,
@@ -66,9 +85,10 @@ function buildPrompt(input: {
     .join("; ");
 
   const sceneLines = input.script.scenes
+    .slice(0, MAX_SCENES_IN_PROMPT)
     .map(
       (scene) =>
-        `Scene ${scene.sceneNumber} (${scene.durationSeconds}s) | visual="${scene.visualPrompt}" | narration="${scene.narration}" | image=${scene.imageUrl ?? "none"}`,
+        `Scene ${scene.sceneNumber} (${scene.durationSeconds}s) | visual="${truncateText(scene.visualPrompt, MAX_SCENE_TEXT_CHARS)}" | narration="${truncateText(scene.narration, MAX_SCENE_TEXT_CHARS)}" | image=${scene.imageUrl ?? "none"}`,
     )
     .join("\n");
   const personalityLine = [
@@ -87,23 +107,38 @@ function buildPrompt(input: {
         `Key Event ${index + 1}: token=${event.token}, type=${event.type}, interpretation="${event.interpretation}"`,
     )
     .join("\n");
+  const profileMetricsLine = input.story.walletProfile?.metrics
+    ? `Behavior metrics: rapidFlipRatio=${input.story.walletProfile.metrics.rapidFlipRatio.toFixed(2)}, lateMomentumEntryRatio=${input.story.walletProfile.metrics.lateMomentumEntryRatio.toFixed(2)}, tokenConcentration=${input.story.walletProfile.metrics.tokenConcentration.toFixed(2)}, averageHoldingMinutes=${input.story.walletProfile.metrics.averageHoldingMinutes.toFixed(1)}.`
+    : "Behavior metrics: unavailable.";
 
-  return [
+  const prompt = [
     "Create a fast-paced, funny-memetic cinematic wallet recap with coherent scene transitions.",
     `Wallet: ${walletShort}, package=${input.story.packageType}, duration=${input.story.durationSeconds}s.`,
     `Facts to preserve: buys=${input.story.analytics.buyCount}, sells=${input.story.analytics.sellCount}, spent=${input.story.analytics.solSpent} SOL, received=${input.story.analytics.solReceived} SOL, pnl=${input.story.analytics.estimatedPnlSol} SOL.`,
     personalityLine ? `Wallet personality profile: ${personalityLine}.` : "Wallet personality profile: unknown.",
     modifiersLine ? `Behavior modifiers: ${modifiersLine}.` : "Behavior modifiers: unavailable.",
     behaviorLine ? `Behavior pattern highlights: ${behaviorLine}.` : "Behavior pattern highlights: unavailable.",
+    profileMetricsLine,
     narrativeSummary ? `Narrative summary: ${narrativeSummary}` : "Narrative summary: unavailable.",
     keyEventLines ? keyEventLines : "Key events: unavailable.",
     `Hook line: ${input.script.hookLine}`,
     `Token media references (prioritize these image assets): ${tokenRefs || "none provided"}.`,
+    omittedTokenCount > 0
+      ? `Additional token references omitted from prompt body: ${omittedTokenCount}.`
+      : "All selected token references are included in this prompt.",
+    "Scene image rule: when a scene has image=<url>, use that URL as the primary visual anchor for that scene.",
+    "Hard constraints: do not fabricate trades, balances, token symbols, or PnL values beyond the provided facts.",
     "Use captions and kinetic motion graphics that match narration timing without fabricating extra trades.",
     "Keep the tone satirical and internet-native, but avoid defamation and unsafe content.",
     "Scene plan:",
     sceneLines,
   ].join("\n");
+
+  if (prompt.length <= MAX_PROMPT_CHARS) {
+    return prompt;
+  }
+
+  return `${prompt.slice(0, MAX_PROMPT_CHARS - 60)}\n[Prompt truncated to fit model input budget.]`;
 }
 
 export function buildGoogleVeoRenderPayload(input: {

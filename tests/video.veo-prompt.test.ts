@@ -18,6 +18,26 @@ function buildStory(): WalletStory {
       worstTrade: "BBB (-0.62 SOL)",
       styleClassification: "The Chaos Gambler",
     },
+    walletPersonality: "The Chaos Gambler",
+    walletSecondaryPersonality: "The Momentum Chaser",
+    walletModifiers: ["Maximum Hopium", "Revenge Entry Specialist"],
+    behaviorPatterns: [
+      "Rapid rotations into fresh pumps",
+      "Late entries after first candle extensions",
+      "Re-entry behavior after losses",
+    ],
+    narrativeSummary:
+      "The wallet sprinted into momentum names, took fast cuts, and kept reloading for a comeback arc.",
+    keyEvents: [
+      {
+        type: "largest_gain",
+        timestamp: 220,
+        token: "AAA",
+        signature: "sig-2",
+        tradeContext: "Quick reclaim after first shakeout",
+        interpretation: "Confidence spike converted into realized upside.",
+      },
+    ],
     timeline: [
       {
         timestamp: 100,
@@ -107,5 +127,8 @@ describe("google veo prompt engine", () => {
     expect(payload.prompt.includes("Hook line")).toBe(true);
     expect(payload.prompt.includes("Wallet woke up and chose velocity.")).toBe(true);
     expect(payload.prompt.includes("AAA")).toBe(true);
+    expect(payload.prompt.includes("Wallet personality profile: The Chaos Gambler + The Momentum Chaser.")).toBe(true);
+    expect(payload.prompt.includes("Scene image rule:")).toBe(true);
+    expect(payload.prompt.includes("Hard constraints:")).toBe(true);
   });
 });
