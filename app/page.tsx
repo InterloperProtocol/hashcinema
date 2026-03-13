@@ -21,6 +21,7 @@ interface JobStatusResponse {
   status?: string;
   progress?: string;
   error?: string;
+  message?: string;
 }
 
 function statusLabel(status: string | undefined, progress: string | undefined): string {
@@ -95,7 +96,9 @@ export default function HomePage() {
         });
         const payload = (await response.json()) as JobStatusResponse;
         if (!response.ok) {
-          throw new Error(payload.error ?? "Failed to fetch job status.");
+          throw new Error(
+            payload.message ?? payload.error ?? "Failed to fetch job status.",
+          );
         }
 
         if (!cancelled) {

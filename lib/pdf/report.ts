@@ -5,6 +5,26 @@ function lineY(startY: number, index: number, step = 18): number {
   return startY - index * step;
 }
 
+export function toPdfSafeText(
+  value: string | number | null | undefined,
+  fallback = "",
+): string {
+  const raw = String(value ?? "");
+  const normalized = raw
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[\r\n\t]+/g, " ")
+    .replace(/[^\x20-\x7E]/g, "?")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (normalized.length > 0) {
+    return normalized;
+  }
+
+  return fallback;
+}
+
 export async function generateReportPdf(
   report: ReportDocument,
 ): Promise<Buffer> {
@@ -21,7 +41,7 @@ export async function generateReportPdf(
     color: rgb(0.08, 0.1, 0.15),
   });
 
-  page.drawText(`Wallet: ${report.wallet}`, {
+  page.drawText(toPdfSafeText(`Wallet: ${report.wallet}`, "Wallet: n/a"), {
     x: 40,
     y: 770,
     size: 11,
@@ -43,7 +63,7 @@ export async function generateReportPdf(
   ];
 
   metrics.forEach((metric, idx) => {
-    page.drawText(metric, {
+    page.drawText(toPdfSafeText(metric, "n/a"), {
       x: 40,
       y: lineY(730, idx),
       size: 12,
@@ -58,7 +78,10 @@ export async function generateReportPdf(
     font: bold,
   });
 
-  const summaryLines = wrapText(report.summary, 78);
+  const summaryLines = wrapText(
+    toPdfSafeText(report.summary, "No summary available."),
+    78,
+  );
   summaryLines.slice(0, 8).forEach((line, idx) => {
     page.drawText(line, {
       x: 40,
@@ -70,7 +93,7 @@ export async function generateReportPdf(
   });
 
   if (report.walletPersonality) {
-    page.drawText(`Wallet Personality: ${report.walletPersonality}`, {
+    page.drawText(toPdfSafeText(`Wallet Personality: ${report.walletPersonality}`), {
       x: 40,
       y: 380,
       size: 11,
@@ -80,7 +103,7 @@ export async function generateReportPdf(
   }
 
   if (report.walletSecondaryPersonality) {
-    page.drawText(`Secondary: ${report.walletSecondaryPersonality}`, {
+    page.drawText(toPdfSafeText(`Secondary: ${report.walletSecondaryPersonality}`), {
       x: 40,
       y: 364,
       size: 10,
@@ -90,7 +113,10 @@ export async function generateReportPdf(
   }
 
   if (report.walletModifiers?.length) {
-    const modifierLine = `Modifiers: ${report.walletModifiers.slice(0, 4).join(", ")}`;
+    const modifierLine = toPdfSafeText(
+      `Modifiers: ${report.walletModifiers.slice(0, 4).join(", ")}`,
+      "Modifiers: n/a",
+    );
     page.drawText(modifierLine, {
       x: 40,
       y: 350,
@@ -109,10 +135,10 @@ export async function generateReportPdf(
     });
 
     report.keyEvents.slice(0, 2).forEach((event, idx) => {
-      const line = `${event.type.replace(/_/g, " ")}: ${event.tradeContext}`.slice(
-        0,
-        96,
-      );
+      const line = toPdfSafeText(
+        `${event.type.replace(/_/g, " ")}: ${event.tradeContext}`,
+        "event unavailable",
+      ).slice(0, 96);
       page.drawText(line, {
         x: 40,
         y: lineY(314, idx, 14),
@@ -140,7 +166,9 @@ export async function generateReportPdf(
 
   report.timeline.slice(-8).forEach((item, idx) => {
     const date = new Date(item.timestamp * 1000).toISOString().slice(0, 19);
-    const line = `${date}   ${item.side.padEnd(4)}   ${item.symbol
+    const side = toPdfSafeText(item.side, "?").slice(0, 4);
+    const symbol = toPdfSafeText(item.symbol, "?");
+    const line = `${date}   ${side.padEnd(4)}   ${symbol
       .slice(0, 8)
       .padEnd(8)}   ${item.tokenAmount.toFixed(4).padStart(10)}   ${item.solAmount
       .toFixed(4)

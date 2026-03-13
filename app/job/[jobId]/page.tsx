@@ -16,6 +16,8 @@ interface JobApiPayload {
   video?: VideoDocument | null;
   payment?: PaymentInstructions;
   error?: string;
+  message?: string;
+  warning?: string;
 }
 
 function statusLabel(status: JobDocument["status"], progress: JobDocument["progress"]) {
@@ -76,7 +78,7 @@ export default function JobPage() {
     const response = await fetch(`/api/jobs/${jobId}`, { cache: "no-store" });
     const payload = (await response.json()) as JobApiPayload;
     if (!response.ok) {
-      throw new Error(payload.error ?? "Failed to fetch job.");
+      throw new Error(payload.message ?? payload.error ?? "Failed to fetch job.");
     }
     setJob(payload.job ?? null);
     setReport(payload.report ?? null);
