@@ -6,6 +6,7 @@ import {
   getInternalVideoRender,
   getJobArtifacts,
   markJobFailed,
+  updateJob,
   updateJobStatus,
   upsertReport,
   upsertVideo,
@@ -67,13 +68,20 @@ async function finalizeReadyRender(
       videoUrl: publicVideoUrl,
       thumbnailUrl: publicThumbnailUrl,
       duration: job.videoSeconds,
-      renderStatus: "ready",
-    }),
-    updateJobStatus(jobId, "complete", {
-      progress: "complete",
-      errorCode: null,
-      errorMessage: null,
-    }),
+        renderStatus: "ready",
+      }),
+    job.status === "failed"
+      ? updateJob(jobId, {
+          status: "complete",
+          progress: "complete",
+          errorCode: null,
+          errorMessage: null,
+        })
+      : updateJobStatus(jobId, "complete", {
+          progress: "complete",
+          errorCode: null,
+          errorMessage: null,
+        }),
   ]);
 
   return true;

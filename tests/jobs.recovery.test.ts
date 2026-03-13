@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   getInternalVideoRender: vi.fn(),
   upsertReport: vi.fn(),
   upsertVideo: vi.fn(),
+  updateJob: vi.fn(),
   updateJobStatus: vi.fn(),
   markJobFailed: vi.fn(),
   generateReportPdf: vi.fn(),
@@ -24,6 +25,7 @@ vi.mock("@/lib/jobs/repository", () => ({
   getInternalVideoRender: mocks.getInternalVideoRender,
   upsertReport: mocks.upsertReport,
   upsertVideo: mocks.upsertVideo,
+  updateJob: mocks.updateJob,
   updateJobStatus: mocks.updateJobStatus,
   markJobFailed: mocks.markJobFailed,
 }));
@@ -112,6 +114,69 @@ describe("recoverJobIfNeeded", () => {
       "job-1",
       "complete",
       expect.objectContaining({ progress: "complete" }),
+    );
+  });
+
+  it("marks a failed job complete when ready assets are recovered", async () => {
+    mocks.getJobArtifacts.mockResolvedValue({
+      job: {
+        jobId: "job-failed",
+        status: "failed",
+        progress: "failed",
+        videoSeconds: 30,
+      },
+      report: {
+        jobId: "job-failed",
+        wallet: "wallet",
+        rangeDays: 1,
+        pumpTokensTraded: 1,
+        buyCount: 1,
+        sellCount: 1,
+        solSpent: 1,
+        solReceived: 1,
+        estimatedPnlSol: 1,
+        bestTrade: "best",
+        worstTrade: "worst",
+        styleClassification: "style",
+        summary: "summary",
+        timeline: [],
+        downloadUrl: null,
+      },
+      video: {
+        jobId: "job-failed",
+        videoUrl: null,
+        thumbnailUrl: null,
+        duration: 30,
+        renderStatus: "queued",
+      },
+    });
+    mocks.getInternalVideoRender.mockResolvedValue({
+      jobId: "job-failed",
+      status: "ready",
+      renderStatus: "ready",
+      videoUrl: "https://internal/video.mp4",
+      thumbnailUrl: "https://internal/thumb.jpg",
+    });
+    mocks.generateReportPdf.mockResolvedValue(Buffer.from("pdf"));
+    mocks.uploadBufferToStorage.mockResolvedValue("https://public/report.pdf");
+    mocks.uploadRemoteFileToStorage
+      .mockResolvedValueOnce("https://public/video.mp4")
+      .mockResolvedValueOnce("https://public/thumb.jpg");
+
+    const recovered = await recoverJobIfNeeded("job-failed");
+
+    expect(recovered).toBe(true);
+    expect(mocks.updateJobStatus).not.toHaveBeenCalledWith(
+      "job-failed",
+      "complete",
+      expect.anything(),
+    );
+    expect(mocks.updateJob).toHaveBeenCalledWith(
+      "job-failed",
+      expect.objectContaining({
+        status: "complete",
+        progress: "complete",
+      }),
     );
   });
 
