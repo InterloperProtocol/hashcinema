@@ -96,6 +96,33 @@ async function syncFailedRender(
   return true;
 }
 
+async function syncInFlightRender(
+  jobId: string,
+  render: InternalVideoRenderDocument,
+): Promise<boolean> {
+  const { job } = await getJobArtifacts(jobId);
+  if (!job) {
+    return false;
+  }
+
+  await Promise.all([
+    upsertVideo({
+      jobId,
+      videoUrl: null,
+      thumbnailUrl: null,
+      duration: job.videoSeconds,
+      renderStatus: "processing",
+    }),
+    updateJobStatus(jobId, "processing", {
+      progress: "generating_video",
+      errorCode: null,
+      errorMessage: null,
+    }),
+  ]);
+
+  return true;
+}
+
 export async function recoverJobIfNeeded(jobId: string): Promise<boolean> {
   const env = getEnv();
   const { job, video } = await getJobArtifacts(jobId);
@@ -107,6 +134,14 @@ export async function recoverJobIfNeeded(jobId: string): Promise<boolean> {
 
   if (render?.status === "ready" && !video?.videoUrl) {
     return finalizeReadyRender(jobId, render);
+  }
+
+  if (
+    render &&
+    (render.status === "processing" || render.status === "queued") &&
+    (job.status === "failed" || job.status === "payment_confirmed")
+  ) {
+    return syncInFlightRender(jobId, render);
   }
 
   if (render?.status === "failed" && job.status === "processing") {

@@ -338,43 +338,62 @@ export async function processJob(jobId: string): Promise<void> {
       renderStatus: "queued",
     });
 
-    const rendered = await timedStage(context, "build_and_render_video", async () =>
-      buildAndRenderVideo({
-        jobId: job.jobId,
-        walletStory: computed!.story,
-      }),
-    );
+    const rendered = await withProgressHeartbeat({
+      jobId,
+      progress: "generating_video",
+      operation: async () =>
+        timedStage(context, "build_and_render_video", async () =>
+          buildAndRenderVideo({
+            jobId: job.jobId,
+            walletStory: computed!.story,
+          }),
+        ),
+    });
 
-    await updateJobProgress(jobId, "uploading_assets");
-    const [pdfBuffer, storedVideoUrl] = await Promise.all([
-      timedStage(context, "generate_report_pdf", async () => generateReportPdf(report)),
-      timedStage(context, "upload_video_asset", async () =>
-        uploadRemoteFileToStorage({
-          sourceUrl: rendered.videoUrl,
-          storagePath: `videos/${jobId}.mp4`,
-          contentType: "video/mp4",
-        }),
-      ),
-    ]);
+    const { pdfBuffer, storedVideoUrl, reportUrl, thumbnailUrl } =
+      await withProgressHeartbeat({
+        jobId,
+        progress: "uploading_assets",
+        operation: async () => {
+          await updateJobProgress(jobId, "uploading_assets");
+          const [pdfBuffer, storedVideoUrl] = await Promise.all([
+            timedStage(context, "generate_report_pdf", async () => generateReportPdf(report)),
+            timedStage(context, "upload_video_asset", async () =>
+              uploadRemoteFileToStorage({
+                sourceUrl: rendered.videoUrl,
+                storagePath: `videos/${jobId}.mp4`,
+                contentType: "video/mp4",
+              }),
+            ),
+          ]);
 
-    const reportUrl = await timedStage(context, "upload_report_asset", async () =>
-      uploadBufferToStorage({
-        storagePath: `reports/${jobId}.pdf`,
-        contentType: "application/pdf",
-        data: pdfBuffer,
-      }),
-    );
+          const reportUrl = await timedStage(context, "upload_report_asset", async () =>
+            uploadBufferToStorage({
+              storagePath: `reports/${jobId}.pdf`,
+              contentType: "application/pdf",
+              data: pdfBuffer,
+            }),
+          );
 
-    let thumbnailUrl: string | null = null;
-    if (rendered.thumbnailUrl) {
-      thumbnailUrl = await timedStage(context, "upload_thumbnail_asset", async () =>
-        uploadRemoteFileToStorage({
-          sourceUrl: rendered.thumbnailUrl!,
-          storagePath: `videos/${jobId}-thumbnail.jpg`,
-          contentType: "image/jpeg",
-        }),
-      );
-    }
+          let thumbnailUrl: string | null = null;
+          if (rendered.thumbnailUrl) {
+            thumbnailUrl = await timedStage(context, "upload_thumbnail_asset", async () =>
+              uploadRemoteFileToStorage({
+                sourceUrl: rendered.thumbnailUrl!,
+                storagePath: `videos/${jobId}-thumbnail.jpg`,
+                contentType: "image/jpeg",
+              }),
+            );
+          }
+
+          return {
+            pdfBuffer,
+            storedVideoUrl,
+            reportUrl,
+            thumbnailUrl,
+          };
+        },
+      });
 
     await Promise.all([
       upsertReport({

@@ -3,6 +3,7 @@ import { prepareFailedJobForRetry } from "@/lib/jobs/repository";
 import { logger } from "@/lib/logging/logger";
 
 export type RetryFailedJobReason =
+  | "already_processing"
   | "job_not_found"
   | "job_not_failed"
   | "payment_incomplete";
@@ -43,4 +44,3 @@ export async function retryFailedJob(
     error: dispatch.error,
   };
 }
-

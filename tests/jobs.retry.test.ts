@@ -55,5 +55,20 @@ describe("retryFailedJob", () => {
       reason: "payment_incomplete",
     });
   });
-});
 
+  it("skips retry when a render is already in progress", async () => {
+    mocks.prepareFailedJobForRetry.mockResolvedValue({
+      status: "already_processing",
+      job: { jobId: "job-1" },
+    });
+
+    const result = await retryFailedJob("job-1");
+
+    expect(mocks.dispatchSingleJob).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      jobId: "job-1",
+      status: "skipped",
+      reason: "already_processing",
+    });
+  });
+});

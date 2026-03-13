@@ -67,4 +67,21 @@ describe("POST /api/jobs/[jobId]/retry", () => {
     expect(body.ok).toBe(false);
     expect(body.reason).toBe("payment_incomplete");
   });
+
+  it("returns 409 when a render is already in progress", async () => {
+    mocks.retryFailedJob.mockResolvedValue({
+      jobId: "b25f5355-5392-4dd0-b9c0-f644222ceba2",
+      status: "skipped",
+      reason: "already_processing",
+    });
+
+    const response = await POST(buildRequest(), {
+      params: Promise.resolve({ jobId: "b25f5355-5392-4dd0-b9c0-f644222ceba2" }),
+    });
+    const body = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(body.ok).toBe(false);
+    expect(body.reason).toBe("already_processing");
+  });
 });

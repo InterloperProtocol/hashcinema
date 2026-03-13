@@ -615,6 +615,7 @@ export async function applyConfirmedPayment(input: {
 
 export type FailedJobRetryPreparationResult =
   | { status: "ready"; job: JobDocument }
+  | { status: "already_processing"; job: JobDocument }
   | { status: "job_not_found" }
   | { status: "job_not_failed"; job: JobDocument }
   | { status: "payment_incomplete"; job: JobDocument };
@@ -625,8 +626,10 @@ export async function prepareFailedJobForRetry(
   return getDb().runTransaction(async (tx) => {
     const jobRef = jobsCollection().doc(jobId);
     const outboxRef = dispatchOutboxCollection().doc(jobId);
+    const renderRef = videoRendersCollection().doc(jobId);
     const jobSnap = await tx.get(jobRef);
     const outboxSnap = await tx.get(outboxRef);
+    const renderSnap = await tx.get(renderRef);
     if (!jobSnap.exists) {
       return { status: "job_not_found" };
     }
@@ -643,6 +646,38 @@ export async function prepareFailedJobForRetry(
       return {
         status: "payment_incomplete",
         job: current,
+      };
+    }
+
+    const render = renderSnap.exists
+      ? ((renderSnap.data() as Partial<InternalVideoRenderDocument>) ?? null)
+      : null;
+    const renderStatus =
+      render?.status === "processing" ||
+      render?.status === "ready" ||
+      render?.status === "failed"
+        ? render.status
+        : render?.renderStatus === "processing" ||
+            render?.renderStatus === "ready" ||
+            render?.renderStatus === "failed"
+          ? render.renderStatus
+          : "queued";
+
+    if (renderStatus === "processing" || renderStatus === "queued") {
+      const now = nowIso();
+      const resumed: JobDocument = {
+        ...current,
+        status: "processing",
+        progress: "generating_video",
+        errorCode: null,
+        errorMessage: null,
+        updatedAt: now,
+      };
+
+      tx.set(jobRef, resumed, { merge: true });
+      return {
+        status: "already_processing",
+        job: resumed,
       };
     }
 

@@ -133,4 +133,48 @@ describe("recoverJobIfNeeded", () => {
     expect(recovered).toBe(false);
     expect(mocks.triggerJobProcessing).toHaveBeenCalledWith("job-2");
   });
+
+  it("restores public processing state from an in-flight internal render", async () => {
+    mocks.getJobArtifacts.mockResolvedValue({
+      job: {
+        jobId: "job-3",
+        status: "failed",
+        progress: "failed",
+        videoSeconds: 30,
+      },
+      report: null,
+      video: {
+        jobId: "job-3",
+        videoUrl: null,
+        thumbnailUrl: null,
+        duration: 30,
+        renderStatus: "queued",
+      },
+    });
+    mocks.getInternalVideoRender.mockResolvedValue({
+      jobId: "job-3",
+      status: "processing",
+      renderStatus: "processing",
+      videoUrl: null,
+      thumbnailUrl: null,
+      error: null,
+    });
+
+    const recovered = await recoverJobIfNeeded("job-3");
+
+    expect(recovered).toBe(true);
+    expect(mocks.upsertVideo).toHaveBeenCalledWith(
+      expect.objectContaining({
+        jobId: "job-3",
+        renderStatus: "processing",
+      }),
+    );
+    expect(mocks.updateJobStatus).toHaveBeenCalledWith(
+      "job-3",
+      "processing",
+      expect.objectContaining({
+        progress: "generating_video",
+      }),
+    );
+  });
 });
