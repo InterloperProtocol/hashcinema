@@ -415,13 +415,13 @@ export default function HomePage() {
               <span>@TrenchCinema</span>
             </a>
             <a
-              href="https://t.me/trenchcinema"
+              href="https://t.me/hashartfun"
               target="_blank"
               rel="noreferrer"
               className="cinema-secondary-button inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-medium transition"
             >
               <TelegramIcon />
-              <span>t.me/trenchcinema</span>
+              <span>t.me/hashartfun</span>
             </a>
           </div>
         </footer>
