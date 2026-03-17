@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { IBM_Plex_Mono, Space_Grotesk, Syne } from "next/font/google";
+import { SiteHeader } from "@/components/SiteHeader";
 import "./globals.css";
 
 const bodyFont = Space_Grotesk({
@@ -35,6 +36,7 @@ export default function RootLayout({
       <body
         className={`${bodyFont.variable} ${monoFont.variable} ${displayFont.variable} antialiased`}
       >
+        <SiteHeader />
         {children}
       </body>
     </html>

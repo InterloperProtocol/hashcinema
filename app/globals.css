@@ -111,6 +111,8 @@ a {
 
 .cinema-grid {
   position: relative;
+  border-radius: inherit;
+  overflow: hidden;
 }
 
 .cinema-grid::before {
@@ -118,6 +120,7 @@ a {
   position: absolute;
   inset: 0;
   pointer-events: none;
+  border-radius: inherit;
   background:
     linear-gradient(120deg, rgba(255, 116, 71, 0.16), transparent 35%),
     linear-gradient(300deg, rgba(135, 219, 255, 0.12), transparent 35%);
