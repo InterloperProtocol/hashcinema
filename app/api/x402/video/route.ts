@@ -1,35 +1,38 @@
-import { dispatchSingleJob } from "@/lib/jobs/dispatch";
-import { createX402PaidJob } from "@/lib/jobs/repository";
-import { getEnv } from "@/lib/env";
-import { logger } from "@/lib/logging/logger";
-import { resolvePackage } from "@/lib/packages";
-import { PublicKey } from "@solana/web3.js";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
+import { getEnv } from "@/lib/env";
+import { dispatchSingleJob } from "@/lib/jobs/dispatch";
+import { createX402PaidTokenVideoJob } from "@/lib/jobs/repository";
+import { logger } from "@/lib/logging/logger";
+import { resolveMemecoinMetadata } from "@/lib/memecoins/metadata";
+import { resolvePackage } from "@/lib/packages";
+import { PackageType, VideoStyleId } from "@/lib/types/domain";
 import { getHashArtX402Server, usdToUsdcAtomic } from "@/lib/x402/hashart";
 
 export const runtime = "nodejs";
 
 const agentVideoRequestSchema = z
   .object({
-    wallet: z.string().min(32).max(64),
-    packageType: z.enum(["1d", "2d", "3d"]).optional(),
-    durationSeconds: z.union([z.literal(30), z.literal(60), z.literal(90)]).optional(),
+    tokenAddress: z.string().min(32).max(64),
+    chain: z.enum(["auto", "solana", "ethereum", "bsc", "base"]).default("auto"),
+    stylePreset: z
+      .enum([
+        "hyperflow_assembly",
+        "trading_card",
+        "trench_neon",
+        "mythic_poster",
+        "glass_signal",
+      ])
+      .default("hyperflow_assembly"),
+    requestedPrompt: z.string().max(240).optional(),
+    packageType: z.enum(["1d", "2d"]).optional(),
+    durationSeconds: z.union([z.literal(30), z.literal(60)]).optional(),
   })
   .refine((value) => value.packageType || value.durationSeconds, {
     message: "Either packageType or durationSeconds is required.",
     path: ["packageType"],
   });
-
-function isValidWallet(wallet: string): boolean {
-  try {
-    new PublicKey(wallet);
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 function buildResourceUrl(): string {
   const env = getEnv();
@@ -37,7 +40,7 @@ function buildResourceUrl(): string {
 }
 
 async function buildRequirements(input: {
-  packageType: "1d" | "2d" | "3d";
+  packageType: PackageType;
   priceUsdc: number;
   durationSeconds: number;
 }) {
@@ -45,7 +48,7 @@ async function buildRequirements(input: {
   return server.buildRequirements({
     amountAtomic: usdToUsdcAtomic(input.priceUsdc),
     resourceUrl: buildResourceUrl(),
-    description: `HashArt ${input.durationSeconds}s cinematic trailer`,
+    description: `HashCinema ${input.durationSeconds}s memecoin video`,
     mimeType: "application/json",
     timeoutSeconds: 300,
   });
@@ -56,7 +59,7 @@ function build402Response(input: {
   requirementsHeader: string;
   accepts: unknown[];
   resource: unknown;
-  packageType: "1d" | "2d" | "3d";
+  packageType: PackageType;
   rangeDays: number;
   priceSol: number;
   priceUsdc: number;
@@ -98,13 +101,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (!isValidWallet(parsed.data.wallet)) {
-      return NextResponse.json(
-        { error: "Invalid Solana wallet address" },
-        { status: 400 },
-      );
-    }
-
     const pkg = resolvePackage({
       packageType: parsed.data.packageType ?? null,
       durationSeconds: parsed.data.durationSeconds ?? null,
@@ -115,6 +111,11 @@ export async function POST(request: NextRequest) {
         { status: 400 },
       );
     }
+
+    const resolved = await resolveMemecoinMetadata({
+      address: parsed.data.tokenAddress,
+      chain: parsed.data.chain,
+    });
 
     const server = getHashArtX402Server();
     const requirements = await buildRequirements({
@@ -158,10 +159,17 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    const job = await createX402PaidJob({
-      wallet: parsed.data.wallet,
+    const job = await createX402PaidTokenVideoJob({
+      tokenAddress: parsed.data.tokenAddress,
       packageType: pkg.packageType,
+      subjectChain: resolved.chain,
+      subjectName: resolved.name,
+      subjectSymbol: resolved.symbol,
+      subjectImage: resolved.image,
+      subjectDescription: resolved.description,
       transaction: settlement.transaction,
+      stylePreset: parsed.data.stylePreset as VideoStyleId,
+      requestedPrompt: parsed.data.requestedPrompt?.trim() || null,
     });
 
     const dispatch = await dispatchSingleJob(job.jobId);
@@ -178,6 +186,14 @@ export async function POST(request: NextRequest) {
           durationSeconds: job.videoSeconds,
           priceSol: job.priceSol,
           priceUsdc: job.priceUsdc,
+        },
+        subject: {
+          address: job.subjectAddress ?? job.wallet,
+          chain: job.subjectChain ?? resolved.chain,
+          name: job.subjectName ?? null,
+          symbol: job.subjectSymbol ?? null,
+          image: job.subjectImage ?? null,
+          stylePreset: job.stylePreset ?? null,
         },
         payment: {
           method: "x402_usdc",
@@ -210,9 +226,16 @@ export async function POST(request: NextRequest) {
       errorMessage: message,
     });
 
+    const status =
+      message.includes("valid Solana mint") ||
+      message.includes("EVM-formatted") ||
+      message.includes("support the Solana chain")
+        ? 400
+        : 500;
+
     return NextResponse.json(
       { error: "Failed to create x402 video job", message },
-      { status: 500 },
+      { status },
     );
   }
 }

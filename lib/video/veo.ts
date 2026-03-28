@@ -55,7 +55,12 @@ export interface GoogleVeoRenderPayload {
   tokenMetadata: VeoTokenMetadata[];
   sceneMetadata: VeoSceneMetadata[];
   storyMetadata: {
+    storyKind?: WalletStory["storyKind"];
     wallet: string;
+    subjectAddress?: string;
+    subjectChain?: WalletStory["subjectChain"];
+    subjectName?: string | null;
+    subjectSymbol?: string | null;
     rangeDays: number;
     packageType: WalletStory["packageType"];
     durationSeconds: number;
@@ -649,7 +654,12 @@ export function buildGoogleVeoRenderPayload(input: {
     tokenMetadata,
     sceneMetadata,
     storyMetadata: {
+      storyKind: input.walletStory.storyKind,
       wallet: input.walletStory.wallet,
+      subjectAddress: input.walletStory.subjectAddress,
+      subjectChain: input.walletStory.subjectChain,
+      subjectName: input.walletStory.subjectName,
+      subjectSymbol: input.walletStory.subjectSymbol,
       rangeDays: input.walletStory.rangeDays,
       packageType: input.walletStory.packageType,
       durationSeconds: input.walletStory.durationSeconds,

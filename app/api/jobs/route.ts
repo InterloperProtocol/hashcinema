@@ -1,33 +1,35 @@
 import {
-  createJob,
-  findRecentReusableJob,
+  createTokenVideoJob,
+  findRecentReusableTokenJob,
   rollbackUnpaidJob,
 } from "@/lib/jobs/repository";
 import { ensurePaymentAddressSubscribedToHeliusWebhook } from "@/lib/helius/webhook-subscriptions";
 import { logger } from "@/lib/logging/logger";
+import { resolveMemecoinMetadata } from "@/lib/memecoins/metadata";
 import { lamportsToSol } from "@/lib/payments/solana-pay";
 import { enforceRateLimit } from "@/lib/security/rate-limit";
 import { getRequestIp } from "@/lib/security/request-ip";
-import { PackageType } from "@/lib/types/domain";
-import { PublicKey } from "@solana/web3.js";
+import { PackageType, RequestedTokenChain, VideoStyleId } from "@/lib/types/domain";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
 export const runtime = "nodejs";
 
 const createJobSchema = z.object({
-  wallet: z.string().min(32).max(64),
-  packageType: z.enum(["1d", "2d", "3d"]),
+  tokenAddress: z.string().min(32).max(64),
+  chain: z.enum(["auto", "solana", "ethereum", "bsc", "base"]).default("auto"),
+  stylePreset: z
+    .enum([
+      "hyperflow_assembly",
+      "trading_card",
+      "trench_neon",
+      "mythic_poster",
+      "glass_signal",
+    ])
+    .default("hyperflow_assembly"),
+  packageType: z.enum(["1d", "2d"]),
+  requestedPrompt: z.string().max(240).optional(),
 });
-
-function isValidWallet(wallet: string): boolean {
-  try {
-    new PublicKey(wallet);
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 const JOB_RATE_LIMIT_RULES = [
   { name: "jobs_per_minute", windowSec: 60, limit: 5 },
@@ -40,6 +42,12 @@ function createJobResponse(input: {
   paymentAddress: string;
   requiredLamports: number;
   reused: boolean;
+  tokenAddress: string;
+  chain: RequestedTokenChain;
+  subjectName?: string | null;
+  subjectSymbol?: string | null;
+  subjectImage?: string | null;
+  stylePreset?: VideoStyleId | null;
 }) {
   return {
     jobId: input.jobId,
@@ -47,6 +55,12 @@ function createJobResponse(input: {
     paymentAddress: input.paymentAddress,
     amountSol: lamportsToSol(input.requiredLamports),
     reused: input.reused,
+    tokenAddress: input.tokenAddress,
+    chain: input.chain,
+    subjectName: input.subjectName ?? null,
+    subjectSymbol: input.subjectSymbol ?? null,
+    subjectImage: input.subjectImage ?? null,
+    stylePreset: input.stylePreset ?? null,
   };
 }
 
@@ -61,17 +75,10 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (!isValidWallet(parsed.data.wallet)) {
-      return NextResponse.json(
-        { error: "Invalid Solana wallet address" },
-        { status: 400 },
-      );
-    }
-
     const ip = getRequestIp(request);
     const rateLimit = await enforceRateLimit({
       scope: "api_jobs_post",
-      key: `${ip}:${parsed.data.wallet.toLowerCase()}`,
+      key: `${ip}:${parsed.data.tokenAddress.toLowerCase()}`,
       rules: [...JOB_RATE_LIMIT_RULES],
     });
 
@@ -91,9 +98,17 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const reusableJob = await findRecentReusableJob({
-      wallet: parsed.data.wallet,
+    const resolved = await resolveMemecoinMetadata({
+      address: parsed.data.tokenAddress,
+      chain: parsed.data.chain,
+    });
+
+    const reusableJob = await findRecentReusableTokenJob({
+      tokenAddress: parsed.data.tokenAddress,
       packageType: parsed.data.packageType as PackageType,
+      subjectChain: resolved.chain,
+      stylePreset: parsed.data.stylePreset as VideoStyleId,
+      requestedPrompt: parsed.data.requestedPrompt?.trim() || null,
       maxAgeMinutes: 20,
     });
 
@@ -109,13 +124,26 @@ export async function POST(request: NextRequest) {
           paymentAddress: reusableJob.paymentAddress,
           requiredLamports: reusableJob.requiredLamports,
           reused: true,
+          tokenAddress: reusableJob.subjectAddress ?? reusableJob.wallet,
+          chain: reusableJob.subjectChain ?? resolved.chain,
+          subjectName: reusableJob.subjectName ?? null,
+          subjectSymbol: reusableJob.subjectSymbol ?? null,
+          subjectImage: reusableJob.subjectImage ?? null,
+          stylePreset: reusableJob.stylePreset ?? null,
         }),
       );
     }
 
-    const job = await createJob({
-      wallet: parsed.data.wallet,
+    const job = await createTokenVideoJob({
+      tokenAddress: parsed.data.tokenAddress,
       packageType: parsed.data.packageType as PackageType,
+      subjectChain: resolved.chain,
+      subjectName: resolved.name,
+      subjectSymbol: resolved.symbol,
+      subjectImage: resolved.image,
+      subjectDescription: resolved.description,
+      stylePreset: parsed.data.stylePreset as VideoStyleId,
+      requestedPrompt: parsed.data.requestedPrompt?.trim() || null,
     });
 
     try {
@@ -163,13 +191,25 @@ export async function POST(request: NextRequest) {
         paymentAddress: job.paymentAddress,
         requiredLamports: job.requiredLamports,
         reused: false,
+        tokenAddress: job.subjectAddress ?? job.wallet,
+        chain: job.subjectChain ?? resolved.chain,
+        subjectName: job.subjectName ?? null,
+        subjectSymbol: job.subjectSymbol ?? null,
+        subjectImage: job.subjectImage ?? null,
+        stylePreset: job.stylePreset ?? null,
       }),
     );
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
+    const status =
+      message.includes("valid Solana mint") ||
+      message.includes("EVM-formatted") ||
+      message.includes("support the Solana chain")
+        ? 400
+        : 500;
     return NextResponse.json(
       { error: "Failed to create job", message },
-      { status: 500 },
+      { status },
     );
   }
 }

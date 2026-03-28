@@ -2,7 +2,9 @@ import { PACKAGE_CONFIG } from "@/lib/constants";
 import { JobPackage, PackageType } from "@/lib/types/domain";
 
 const PACKAGE_BY_DURATION = new Map<number, JobPackage>(
-  Object.values(PACKAGE_CONFIG).map((item) => [item.videoSeconds, item]),
+  Object.values(PACKAGE_CONFIG)
+    .filter((item) => item.enabled !== false)
+    .map((item) => [item.videoSeconds, item]),
 );
 
 export function getPackageConfig(packageType: PackageType): JobPackage {
@@ -20,7 +22,8 @@ export function resolvePackage(input: {
   durationSeconds?: number | null;
 }): JobPackage | null {
   if (input.packageType) {
-    return PACKAGE_CONFIG[input.packageType] ?? null;
+    const pkg = PACKAGE_CONFIG[input.packageType] ?? null;
+    return pkg?.enabled === false ? null : pkg;
   }
 
   if (typeof input.durationSeconds === "number") {

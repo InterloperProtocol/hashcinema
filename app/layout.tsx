@@ -21,16 +21,16 @@ const displayFont = Syne({
 });
 
 export const metadata: Metadata = {
-  title: "Trench Cinema | HashCinema",
+  title: "HashCinema | Multichain Memecoin Video Generator",
   description:
-    "Turn recent Pump.fun memecoin trading into a cinematic AI trailer built from wallet personality, trench lore, and chaotic on-chain behavior.",
+    "Generate low-cost cinematic videos for one memecoin at a time across Solana, Ethereum, BNB Chain, and Base.",
 };
 
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   viewportFit: "cover",
-  themeColor: "#090a0f",
+  themeColor: "#000000",
   colorScheme: "dark",
 };
 

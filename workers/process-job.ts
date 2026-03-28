@@ -11,6 +11,7 @@ import {
   beginJobProcessing,
   getJob,
   markJobFailed,
+  updateJob,
   updateJobProgress,
   updateJobStatus,
   upsertReport,
@@ -23,11 +24,13 @@ import {
   uploadBufferToStorage,
   uploadRemoteFileToStorage,
 } from "../lib/storage/upload";
-import { ReportDocument, WalletStory } from "../lib/types/domain";
+import { JobDocument, ReportDocument, WalletStory } from "../lib/types/domain";
 import { buildAndRenderVideo } from "../lib/video/pipeline";
 import { computeAnalyticsFromTrades } from "../lib/analytics/compute";
 import { recoverJobIfNeeded } from "../lib/jobs/recovery";
 import { publishCompletedJobToGoonBook } from "../lib/social/goonbook-publisher";
+import { resolveMemecoinMetadata } from "../lib/memecoins/metadata";
+import { buildTokenVideoArtifacts } from "../lib/memecoins/story";
 
 type AnalyticsEngineMode = ReturnType<typeof getEnv>["ANALYTICS_ENGINE_MODE"];
 const ANALYTICS_STAGE_TIMEOUT_MS = 4 * 60_000;
@@ -182,6 +185,168 @@ async function computeLegacyArtifacts(input: {
   );
 }
 
+async function uploadRenderedAssets(input: {
+  jobId: string;
+  context: { jobId: string; wallet: string };
+  rendered: { videoUrl: string; thumbnailUrl: string | null };
+  report: ReportDocument;
+}): Promise<{
+  storedVideoUrl: string;
+  reportUrl: string;
+  thumbnailUrl: string | null;
+}> {
+  return withProgressHeartbeat({
+    jobId: input.jobId,
+    progress: "uploading_assets",
+    operation: async () => {
+      await updateJobProgress(input.jobId, "uploading_assets");
+      const [pdfBuffer, storedVideoUrl] = await Promise.all([
+        timedStage(input.context, "generate_report_pdf", async () =>
+          generateReportPdf(input.report),
+        ),
+        timedStage(input.context, "upload_video_asset", async () =>
+          uploadRemoteFileToStorage({
+            sourceUrl: input.rendered.videoUrl,
+            storagePath: `videos/${input.jobId}.mp4`,
+            contentType: "video/mp4",
+          }),
+        ),
+      ]);
+
+      const reportUrl = await timedStage(input.context, "upload_report_asset", async () =>
+        uploadBufferToStorage({
+          storagePath: `reports/${input.jobId}.pdf`,
+          contentType: "application/pdf",
+          data: pdfBuffer,
+        }),
+      );
+
+      let thumbnailUrl: string | null = null;
+      if (input.rendered.thumbnailUrl) {
+        thumbnailUrl = await timedStage(
+          input.context,
+          "upload_thumbnail_asset",
+          async () =>
+            uploadRemoteFileToStorage({
+              sourceUrl: input.rendered.thumbnailUrl!,
+              storagePath: `videos/${input.jobId}-thumbnail.jpg`,
+              contentType: "image/jpeg",
+            }),
+        );
+      }
+
+      return {
+        storedVideoUrl,
+        reportUrl,
+        thumbnailUrl,
+      };
+    },
+  });
+}
+
+async function processTokenVideoJob(input: {
+  job: JobDocument;
+}): Promise<void> {
+  const tokenAddress = input.job.subjectAddress ?? input.job.wallet;
+  const context = {
+    jobId: input.job.jobId,
+    wallet: tokenAddress,
+  };
+
+  await updateJobProgress(input.job.jobId, "fetching_transactions");
+  const token = await timedStage(context, "resolve_token_metadata", () =>
+    resolveMemecoinMetadata({
+      address: tokenAddress,
+      chain: input.job.subjectChain ?? "auto",
+    }),
+  );
+
+  await updateJob(input.job.jobId, {
+    subjectAddress: token.address,
+    subjectChain: token.chain,
+    subjectName: token.name,
+    subjectSymbol: token.symbol,
+    subjectImage: token.image,
+    subjectDescription: token.description,
+  });
+
+  const enrichedJob: JobDocument = {
+    ...input.job,
+    subjectAddress: token.address,
+    subjectChain: token.chain,
+    subjectName: token.name,
+    subjectSymbol: token.symbol,
+    subjectImage: token.image,
+    subjectDescription: token.description,
+  };
+
+  await updateJobProgress(input.job.jobId, "generating_report");
+  const computed = buildTokenVideoArtifacts({
+    job: enrichedJob,
+    token,
+  });
+
+  const summary = await timedStage(context, "generate_report_summary", async () =>
+    generateReportSummary(computed.report),
+  );
+
+  const report: ReportDocument = {
+    ...computed.report,
+    summary,
+    downloadUrl: null,
+  };
+
+  await upsertReport(report);
+
+  await updateJobProgress(input.job.jobId, "generating_script");
+  await updateJobProgress(input.job.jobId, "generating_video");
+  await upsertVideo({
+    jobId: input.job.jobId,
+    videoUrl: null,
+    thumbnailUrl: null,
+    duration: enrichedJob.videoSeconds,
+    renderStatus: "queued",
+  });
+
+  const rendered = await withProgressHeartbeat({
+    jobId: input.job.jobId,
+    progress: "generating_video",
+    operation: async () =>
+      timedStage(context, "build_and_render_video", async () =>
+        buildAndRenderVideo({
+          jobId: input.job.jobId,
+          walletStory: computed.story,
+        }),
+      ),
+  });
+
+  const { storedVideoUrl, reportUrl, thumbnailUrl } = await uploadRenderedAssets({
+    jobId: input.job.jobId,
+    context,
+    rendered,
+    report,
+  });
+
+  await Promise.all([
+    upsertReport({
+      ...report,
+      downloadUrl: reportUrl,
+    }),
+    upsertVideo({
+      jobId: input.job.jobId,
+      videoUrl: storedVideoUrl,
+      thumbnailUrl,
+      duration: enrichedJob.videoSeconds,
+      renderStatus: "ready",
+    }),
+    updateJobStatus(input.job.jobId, "complete", {
+      progress: "complete",
+      errorCode: null,
+      errorMessage: null,
+    }),
+  ]);
+}
+
 export async function processJob(jobId: string): Promise<void> {
   const env = getEnv();
   const mode: AnalyticsEngineMode = env.ANALYTICS_ENGINE_MODE;
@@ -215,6 +380,33 @@ export async function processJob(jobId: string): Promise<void> {
   const context = { jobId: job.jobId, wallet: job.wallet };
 
   try {
+    if (job.requestKind === "token_video") {
+      await processTokenVideoJob({ job });
+
+      try {
+        const publication = await publishCompletedJobToGoonBook(jobId);
+        if (publication.status === "failed") {
+          logger.warn("goonbook_publication_attempt_failed", {
+            component: "worker",
+            stage: "publish_goonbook",
+            jobId,
+            errorCode: "goonbook_publication_attempt_failed",
+            errorMessage: publication.reason ?? "Unknown GoonBook publication error",
+          });
+        }
+      } catch (publicationError) {
+        logger.warn("goonbook_publication_attempt_crashed", {
+          component: "worker",
+          stage: "publish_goonbook",
+          jobId,
+          errorCode: "goonbook_publication_attempt_crashed",
+          errorMessage: errorMessage(publicationError),
+        });
+      }
+
+      return;
+    }
+
     let computed:
       | {
           report: Omit<ReportDocument, "summary" | "downloadUrl">;
@@ -351,48 +543,12 @@ export async function processJob(jobId: string): Promise<void> {
         ),
     });
 
-    const { storedVideoUrl, reportUrl, thumbnailUrl } = await withProgressHeartbeat({
-        jobId,
-        progress: "uploading_assets",
-        operation: async () => {
-          await updateJobProgress(jobId, "uploading_assets");
-          const [pdfBuffer, storedVideoUrl] = await Promise.all([
-            timedStage(context, "generate_report_pdf", async () => generateReportPdf(report)),
-            timedStage(context, "upload_video_asset", async () =>
-              uploadRemoteFileToStorage({
-                sourceUrl: rendered.videoUrl,
-                storagePath: `videos/${jobId}.mp4`,
-                contentType: "video/mp4",
-              }),
-            ),
-          ]);
-
-          const reportUrl = await timedStage(context, "upload_report_asset", async () =>
-            uploadBufferToStorage({
-              storagePath: `reports/${jobId}.pdf`,
-              contentType: "application/pdf",
-              data: pdfBuffer,
-            }),
-          );
-
-          let thumbnailUrl: string | null = null;
-          if (rendered.thumbnailUrl) {
-            thumbnailUrl = await timedStage(context, "upload_thumbnail_asset", async () =>
-              uploadRemoteFileToStorage({
-                sourceUrl: rendered.thumbnailUrl!,
-                storagePath: `videos/${jobId}-thumbnail.jpg`,
-                contentType: "image/jpeg",
-              }),
-            );
-          }
-
-          return {
-            storedVideoUrl,
-            reportUrl,
-            thumbnailUrl,
-          };
-        },
-      });
+    const { storedVideoUrl, reportUrl, thumbnailUrl } = await uploadRenderedAssets({
+      jobId,
+      context,
+      rendered,
+      report,
+    });
 
     await Promise.all([
       upsertReport({

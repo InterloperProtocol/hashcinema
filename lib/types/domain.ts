@@ -7,6 +7,19 @@ import type {
 
 export type PackageType = "1d" | "2d" | "3d";
 
+export type JobRequestKind = "wallet_recap" | "token_video";
+
+export type SupportedTokenChain = "solana" | "ethereum" | "bsc" | "base";
+
+export type RequestedTokenChain = SupportedTokenChain | "auto";
+
+export type VideoStyleId =
+  | "hyperflow_assembly"
+  | "trading_card"
+  | "trench_neon"
+  | "mythic_poster"
+  | "glass_signal";
+
 export type PaymentMethod = "sol_dedicated_address" | "x402_usdc";
 
 export type PaymentCurrency = "SOL" | "USDC";
@@ -38,11 +51,36 @@ export interface JobPackage {
   priceSol: number;
   priceUsdc: number;
   videoSeconds: number;
+  enabled?: boolean;
+  label?: string;
+  subtitle?: string;
+}
+
+export interface TokenLink {
+  label: string;
+  url: string;
+}
+
+export interface TokenMarketSnapshot {
+  priceUsd: number | null;
+  marketCapUsd: number | null;
+  liquidityUsd: number | null;
+  volume24hUsd: number | null;
+  pairUrl: string | null;
 }
 
 export interface JobDocument {
   jobId: string;
   wallet: string;
+  requestKind?: JobRequestKind;
+  subjectAddress?: string;
+  subjectChain?: SupportedTokenChain | null;
+  subjectName?: string | null;
+  subjectSymbol?: string | null;
+  subjectImage?: string | null;
+  subjectDescription?: string | null;
+  stylePreset?: VideoStyleId | null;
+  requestedPrompt?: string | null;
   packageType: PackageType;
   rangeDays: number;
   priceSol: number;
@@ -146,6 +184,18 @@ export interface ReportDocument {
   jobId: string;
   wallet: string;
   rangeDays: number;
+  subjectKind?: JobRequestKind;
+  subjectAddress?: string | null;
+  subjectChain?: SupportedTokenChain | null;
+  subjectName?: string | null;
+  subjectSymbol?: string | null;
+  subjectImage?: string | null;
+  subjectDescription?: string | null;
+  stylePreset?: VideoStyleId | null;
+  styleLabel?: string | null;
+  durationSeconds?: number;
+  tokenLinks?: TokenLink[];
+  marketSnapshot?: TokenMarketSnapshot;
   pumpTokensTraded: number;
   buyCount: number;
   sellCount: number;
@@ -231,6 +281,18 @@ export interface WalletStoryTokenMetadata {
 
 export interface WalletStory {
   wallet: string;
+  storyKind?: JobRequestKind;
+  subjectAddress?: string;
+  subjectChain?: SupportedTokenChain | null;
+  subjectName?: string | null;
+  subjectSymbol?: string | null;
+  subjectImage?: string | null;
+  subjectDescription?: string | null;
+  stylePreset?: VideoStyleId | null;
+  styleLabel?: string | null;
+  requestedPrompt?: string | null;
+  tokenLinks?: TokenLink[];
+  marketSnapshot?: TokenMarketSnapshot;
   rangeDays: number;
   packageType: PackageType;
   durationSeconds: number;

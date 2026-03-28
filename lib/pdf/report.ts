@@ -33,37 +33,51 @@ export async function generateReportPdf(
   const font = await pdf.embedFont(StandardFonts.Helvetica);
   const bold = await pdf.embedFont(StandardFonts.HelveticaBold);
 
-  page.drawText("HASHCINEMA DOSSIER", {
+  page.drawText(
+    report.subjectKind === "token_video"
+      ? "HASHCINEMA TOKEN CARD"
+      : "HASHCINEMA DOSSIER",
+    {
     x: 40,
     y: 800,
     size: 22,
     font: bold,
     color: rgb(0.08, 0.1, 0.15),
-  });
-
-  page.drawText(
-    toPdfSafeText(`Wallet Address: ${report.wallet}`, "Wallet Address: n/a"),
-    {
-      x: 40,
-      y: 770,
-      size: 11,
-      font,
-      color: rgb(0.2, 0.22, 0.28),
     },
   );
 
+  const subjectLine =
+    report.subjectKind === "token_video"
+      ? `Token: ${report.subjectName ?? report.subjectSymbol ?? "n/a"}`
+      : `Wallet Address: ${report.wallet}`;
+
+  page.drawText(toPdfSafeText(subjectLine, "Subject: n/a"), {
+    x: 40,
+    y: 770,
+    size: 11,
+    font,
+    color: rgb(0.2, 0.22, 0.28),
+  });
+
   let cursorY = 745;
-  const personality = report.walletPersonality ?? report.styleClassification ?? "Unclassified";
-  const metaLines = [
-    `Personality: ${personality}`,
-    report.walletSecondaryPersonality
-      ? `Secondary: ${report.walletSecondaryPersonality}`
-      : null,
-    report.walletModifiers?.length
-      ? `Modifiers: ${report.walletModifiers.slice(0, 4).join(", ")}`
-      : null,
-    `Window: last ${report.rangeDays} day(s)`,
-  ].filter(Boolean) as string[];
+  const metaLines =
+    report.subjectKind === "token_video"
+      ? [
+          report.subjectSymbol ? `Ticker: ${report.subjectSymbol}` : null,
+          report.subjectChain ? `Chain: ${report.subjectChain}` : null,
+          report.styleLabel ? `Style: ${report.styleLabel}` : null,
+          report.durationSeconds ? `Runtime: ${report.durationSeconds}s` : null,
+        ].filter(Boolean) as string[]
+      : [
+          `Personality: ${report.walletPersonality ?? report.styleClassification ?? "Unclassified"}`,
+          report.walletSecondaryPersonality
+            ? `Secondary: ${report.walletSecondaryPersonality}`
+            : null,
+          report.walletModifiers?.length
+            ? `Modifiers: ${report.walletModifiers.slice(0, 4).join(", ")}`
+            : null,
+          `Window: last ${report.rangeDays} day(s)`,
+        ].filter(Boolean) as string[];
 
   metaLines.forEach((line, idx) => {
     page.drawText(toPdfSafeText(line, "n/a"), {

@@ -102,6 +102,13 @@ function normalizeSceneDurations(
 }
 
 function buildFallbackHookLine(story: WalletStory): string {
+  if (story.storyKind === "token_video") {
+    const symbol = story.subjectSymbol ?? "TOKEN";
+    const name = story.subjectName ?? symbol;
+    const style = story.styleLabel ?? story.analytics.styleClassification;
+    return `${name} moves like ${style}, and the ticker wants a hero entrance.`;
+  }
+
   const walletShort = `${story.wallet.slice(0, 4)}...${story.wallet.slice(-4)}`;
   const archetype =
     story.videoIdentitySheet?.archetype ??
@@ -164,7 +171,18 @@ function enrichScenesWithCoherence(
 
 function buildCinematicPromptInput(story: WalletStory): Record<string, unknown> {
   return {
+    storyKind: story.storyKind ?? "wallet_recap",
     wallet: story.wallet,
+    subjectAddress: story.subjectAddress,
+    subjectChain: story.subjectChain,
+    subjectName: story.subjectName,
+    subjectSymbol: story.subjectSymbol,
+    subjectDescription: story.subjectDescription,
+    stylePreset: story.stylePreset,
+    styleLabel: story.styleLabel,
+    requestedPrompt: story.requestedPrompt,
+    tokenLinks: story.tokenLinks,
+    marketSnapshot: story.marketSnapshot,
     rangeDays: story.rangeDays,
     packageType: story.packageType,
     durationSeconds: story.durationSeconds,
@@ -259,7 +277,7 @@ export async function generateCinematicScript(
           role: "user",
           content:
             `Build a cinematic script from these structured inputs.\n\n` +
-            `Wallet story facts JSON:\n${JSON.stringify(buildCinematicPromptInput(story))}` +
+            `Story facts JSON:\n${JSON.stringify(buildCinematicPromptInput(story))}` +
             `\n\nIdentity bible JSON:\n${JSON.stringify(story.videoIdentitySheet ?? null)}` +
             `\n\nScene state sequence JSON:\n${JSON.stringify(story.sceneStateSequence ?? [])}` +
             `\n\nDerived directorial prompts JSON:\n${JSON.stringify(story.videoPromptSequence ?? [])}` +

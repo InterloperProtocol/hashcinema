@@ -12,6 +12,8 @@ import {
   PackageType,
   PumpMetadataCacheDocument,
   ReportDocument,
+  SupportedTokenChain,
+  VideoStyleId,
   VideoDocument,
 } from "@/lib/types/domain";
 import { randomUUID } from "crypto";
@@ -189,6 +191,7 @@ export async function createJob(input: {
     const job: JobDocument = {
       jobId,
       wallet: input.wallet,
+      requestKind: "wallet_recap",
       packageType: pkg.packageType,
       rangeDays: pkg.rangeDays,
       priceSol: pkg.priceSol,
@@ -237,6 +240,155 @@ export async function createX402PaidJob(input: {
   const job: JobDocument = {
     jobId,
     wallet: input.wallet,
+    requestKind: "wallet_recap",
+    packageType: pkg.packageType,
+    rangeDays: pkg.rangeDays,
+    priceSol: pkg.priceSol,
+    priceUsdc: pkg.priceUsdc,
+    videoSeconds: pkg.videoSeconds,
+    status: "payment_confirmed",
+    progress: "payment_confirmed",
+    txSignature: input.transaction,
+    createdAt,
+    updatedAt: createdAt,
+    errorCode: null,
+    errorMessage: null,
+    paymentMethod: "x402_usdc",
+    paymentCurrency: "USDC",
+    paymentNetwork: "solana",
+    x402Transaction: input.transaction,
+    paymentAddress,
+    paymentIndex: null,
+    paymentRouting: "x402",
+    requiredLamports: 0,
+    receivedLamports: 0,
+    paymentSignatures: input.transaction ? [input.transaction] : [],
+    lastPaymentAt: createdAt,
+    sweepStatus: "swept",
+    sweepSignature: input.transaction,
+    sweptLamports: 0,
+    lastSweepAt: createdAt,
+    sweepError: null,
+  };
+
+  await jobsCollection().doc(jobId).set(job);
+  await upsertDispatchOutboxPending(jobId);
+  return job;
+}
+
+export async function createTokenVideoJob(input: {
+  tokenAddress: string;
+  packageType: PackageType;
+  subjectChain: SupportedTokenChain;
+  subjectName?: string | null;
+  subjectSymbol?: string | null;
+  subjectImage?: string | null;
+  subjectDescription?: string | null;
+  stylePreset?: VideoStyleId | null;
+  requestedPrompt?: string | null;
+}): Promise<JobDocument> {
+  const pkg = getPackageConfig(input.packageType);
+  const jobId = randomUUID();
+
+  return getDb().runTransaction(async (tx) => {
+    const createdAt = nowIso();
+    const counterRef = paymentCounterCollection().doc("payment_counter");
+    const counterSnap = await tx.get(counterRef);
+    const currentCounter = counterSnap.exists
+      ? (counterSnap.data()?.nextPaymentIndex as number | undefined)
+      : undefined;
+    const paymentIndex =
+      typeof currentCounter === "number" && Number.isInteger(currentCounter) && currentCounter > 0
+        ? currentCounter
+        : 1;
+
+    const paymentAddress = derivePaymentAddress(paymentIndex);
+
+    tx.set(
+      counterRef,
+      {
+        nextPaymentIndex: paymentIndex + 1,
+        updatedAt: createdAt,
+      },
+      { merge: true },
+    );
+
+    const job: JobDocument = {
+      jobId,
+      wallet: input.tokenAddress,
+      requestKind: "token_video",
+      subjectAddress: input.tokenAddress,
+      subjectChain: input.subjectChain,
+      subjectName: input.subjectName ?? null,
+      subjectSymbol: input.subjectSymbol ?? null,
+      subjectImage: input.subjectImage ?? null,
+      subjectDescription: input.subjectDescription ?? null,
+      stylePreset: input.stylePreset ?? null,
+      requestedPrompt: input.requestedPrompt ?? null,
+      packageType: pkg.packageType,
+      rangeDays: pkg.rangeDays,
+      priceSol: pkg.priceSol,
+      priceUsdc: pkg.priceUsdc,
+      videoSeconds: pkg.videoSeconds,
+      status: "awaiting_payment",
+      progress: "awaiting_payment",
+      txSignature: null,
+      createdAt,
+      updatedAt: createdAt,
+      errorCode: null,
+      errorMessage: null,
+      paymentMethod: "sol_dedicated_address",
+      paymentCurrency: "SOL",
+      paymentNetwork: "solana",
+      x402Transaction: null,
+      paymentAddress,
+      paymentIndex,
+      paymentRouting: "dedicated_address",
+      requiredLamports: solToLamports(pkg.priceSol),
+      receivedLamports: 0,
+      paymentSignatures: [],
+      lastPaymentAt: null,
+      sweepStatus: "pending",
+      sweepSignature: null,
+      sweptLamports: 0,
+      lastSweepAt: null,
+      sweepError: null,
+    };
+
+    tx.set(jobsCollection().doc(jobId), job);
+    return job;
+  });
+}
+
+export async function createX402PaidTokenVideoJob(input: {
+  tokenAddress: string;
+  packageType: PackageType;
+  subjectChain: SupportedTokenChain;
+  subjectName?: string | null;
+  subjectSymbol?: string | null;
+  subjectImage?: string | null;
+  subjectDescription?: string | null;
+  transaction: string;
+  stylePreset?: VideoStyleId | null;
+  requestedPrompt?: string | null;
+}): Promise<JobDocument> {
+  const pkg = getPackageConfig(input.packageType);
+  const jobId = randomUUID();
+  const createdAt = nowIso();
+  const paymentAddress = getRevenueWalletAddress();
+
+  const job: JobDocument = {
+    jobId,
+    wallet: input.tokenAddress,
+    requestKind: "token_video",
+    subjectAddress: input.tokenAddress,
+    subjectChain: input.subjectChain,
+    subjectName: input.subjectName ?? null,
+    subjectSymbol: input.subjectSymbol ?? null,
+    subjectImage: input.subjectImage ?? null,
+    subjectDescription: input.subjectDescription ?? null,
+    stylePreset: input.stylePreset ?? null,
+    requestedPrompt: input.requestedPrompt ?? null,
     packageType: pkg.packageType,
     rangeDays: pkg.rangeDays,
     priceSol: pkg.priceSol,
@@ -306,6 +458,54 @@ export async function findRecentReusableJob(input: {
 
   for (const job of candidates) {
     if (job.packageType !== input.packageType) {
+      continue;
+    }
+    if (!REUSABLE_JOB_STATUSES.has(job.status)) {
+      continue;
+    }
+    if (isoToMs(job.createdAt) < thresholdMs) {
+      continue;
+    }
+    return job;
+  }
+
+  return null;
+}
+
+export async function findRecentReusableTokenJob(input: {
+  tokenAddress: string;
+  packageType: PackageType;
+  subjectChain: SupportedTokenChain;
+  stylePreset?: VideoStyleId | null;
+  requestedPrompt?: string | null;
+  maxAgeMinutes?: number;
+}): Promise<JobDocument | null> {
+  const maxAgeMinutes = Math.max(1, Math.floor(input.maxAgeMinutes ?? 20));
+  const thresholdMs = Date.now() - maxAgeMinutes * 60_000;
+
+  const snapshot = await jobsCollection()
+    .where("wallet", "==", input.tokenAddress)
+    .limit(50)
+    .get();
+
+  const candidates = snapshot.docs
+    .map((doc) => normalizeJobDocument(doc.data() as JobDocument))
+    .sort((a, b) => isoToMs(b.createdAt) - isoToMs(a.createdAt));
+
+  for (const job of candidates) {
+    if (job.requestKind !== "token_video") {
+      continue;
+    }
+    if (job.packageType !== input.packageType) {
+      continue;
+    }
+    if (job.subjectChain !== input.subjectChain) {
+      continue;
+    }
+    if ((job.stylePreset ?? null) !== (input.stylePreset ?? null)) {
+      continue;
+    }
+    if ((job.requestedPrompt ?? null) !== (input.requestedPrompt ?? null)) {
       continue;
     }
     if (!REUSABLE_JOB_STATUSES.has(job.status)) {

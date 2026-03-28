@@ -17,6 +17,47 @@ function clampWordCount(text: string, maxWords: number): string {
 export function buildFallbackReportSummary(
   report: Omit<ReportDocument, "summary" | "downloadUrl">,
 ): string {
+  if (report.subjectKind === "token_video") {
+    const chain = report.subjectChain ? `${report.subjectChain} ` : "";
+    const subject =
+      report.subjectName && report.subjectSymbol
+        ? `${report.subjectName} (${report.subjectSymbol})`
+        : report.subjectSymbol ?? report.subjectAddress ?? "This token";
+    const style = report.styleLabel ?? report.styleClassification ?? "token trailer";
+    const marketCap = report.marketSnapshot?.marketCapUsd
+      ? `Market cap snapshot: ${report.marketSnapshot.marketCapUsd.toLocaleString("en-US", {
+          style: "currency",
+          currency: "USD",
+          notation: "compact",
+          maximumFractionDigits: 2,
+        })}.`
+      : "";
+    const liquidity = report.marketSnapshot?.liquidityUsd
+      ? `Liquidity snapshot: ${report.marketSnapshot.liquidityUsd.toLocaleString("en-US", {
+          style: "currency",
+          currency: "USD",
+          notation: "compact",
+          maximumFractionDigits: 2,
+        })}.`
+      : "";
+    const narrative = report.narrativeSummary?.trim();
+    const moment = report.funObservations?.[0] ?? report.memorableMoments?.[0] ?? null;
+
+    return clampWordCount(
+      [
+        `${subject} gets a ${style.toLowerCase()} treatment instead of a wallet recap.`,
+        `${chain}The contract itself is the protagonist, and the cut stays focused on one memecoin from open to final frame.`,
+        marketCap,
+        liquidity,
+        moment ?? "The token is framed like a moving trading card built for sharing.",
+        narrative ? `Direction: ${narrative}` : "",
+      ]
+        .filter(Boolean)
+        .join(" "),
+      140,
+    );
+  }
+
   const walletShort = `${report.wallet.slice(0, 4)}...${report.wallet.slice(-4)}`;
   const personality = report.walletPersonality ?? report.styleClassification ?? "Unclassified";
   const secondPersonality = report.walletSecondaryPersonality
@@ -55,7 +96,7 @@ export async function generateReportSummary(
         {
           role: "system",
           content:
-            "You are a trench cinema narrator. Use ONLY the JSON facts provided. Keep it memetic, funny, viral-tuned, and written as natural language (not a stat dump). Do not invent any trades, tokens, timestamps, or prices. Output strictly JSON with one key: summary.",
+            "You are a trench cinema narrator. Use ONLY the JSON facts provided. Keep it memetic, funny, viral-tuned, and written as natural language (not a stat dump). If the subjectKind is token_video, write about the memecoin itself rather than a wallet. Do not invent any trades, tokens, timestamps, prices, or chain data. Output strictly JSON with one key: summary.",
         },
         {
           role: "user",
