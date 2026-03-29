@@ -33,6 +33,45 @@ function runCommand(command: string, args: string[], cwd: string): Promise<void>
   });
 }
 
+async function fileExists(filePath: string): Promise<boolean> {
+  try {
+    await fs.access(filePath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function removeIfExists(filePath: string): Promise<void> {
+  await fs.rm(filePath, { force: true });
+}
+
+async function cleanupSourceArtifacts(workingDir: string): Promise<void> {
+  const entries = await fs.readdir(workingDir);
+  await Promise.all(
+    entries
+      .filter((entry) => entry.startsWith("source-media."))
+      .map((entry) => removeIfExists(path.join(workingDir, entry))),
+  );
+}
+
+async function findArtifact(
+  workingDir: string,
+  prefix: string,
+  extensions: string[],
+): Promise<string | null> {
+  const entries = await fs.readdir(workingDir);
+  const allowed = new Set(extensions.map((extension) => extension.toLowerCase()));
+  const match = entries.find((entry) => {
+    if (!entry.startsWith(`${prefix}.`)) {
+      return false;
+    }
+    return allowed.has(path.extname(entry).toLowerCase());
+  });
+
+  return match ? path.join(workingDir, match) : null;
+}
+
 function parseGcsUri(uri: string): { bucket: string; objectPath: string } {
   const match = uri.match(/^g(?:cs|s):\/\/([^/]+)\/(.+)$/);
   if (!match) {
@@ -86,6 +125,63 @@ export async function stageClipFiles(input: {
   return { directory: rootDir, clipPaths };
 }
 
+export async function downloadSourceMediaArtifacts(input: {
+  sourceUrls: string[];
+  workingDir: string;
+}): Promise<{ audioPath: string; thumbnailPath: string | null }> {
+  const env = getVideoServiceEnv();
+  const candidateUrls = [...new Set(input.sourceUrls.map((value) => value.trim()).filter(Boolean))];
+
+  if (!candidateUrls.length) {
+    throw new Error("No source media URL was provided for source audio download.");
+  }
+
+  let lastError: Error | null = null;
+
+  for (const sourceUrl of candidateUrls) {
+    await cleanupSourceArtifacts(input.workingDir);
+    const outputBase = path.join(input.workingDir, "source-media");
+
+    try {
+      await runCommand(
+        env.YT_DLP_PATH,
+        [
+          "--no-playlist",
+          "--extract-audio",
+          "--audio-format",
+          "mp3",
+          "--audio-quality",
+          "0",
+          "--write-thumbnail",
+          "--convert-thumbnails",
+          "jpg",
+          "-o",
+          `${outputBase}.%(ext)s`,
+          sourceUrl,
+        ],
+        input.workingDir,
+      );
+
+      const audioPath = await findArtifact(input.workingDir, "source-media", [".mp3"]);
+      if (!audioPath || !(await fileExists(audioPath))) {
+        throw new Error("yt-dlp completed without producing an MP3 audio file.");
+      }
+
+      const thumbnailPath =
+        (await findArtifact(input.workingDir, "source-media", [".jpg", ".jpeg"])) ?? null;
+
+      return {
+        audioPath,
+        thumbnailPath,
+      };
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+    }
+  }
+
+  throw lastError ?? new Error("Unable to download source media artifacts.");
+}
+
 export async function concatClips(input: {
   clipPaths: string[];
   outputPath: string;
@@ -113,6 +209,40 @@ export async function concatClips(input: {
       "yuv420p",
       "-c:a",
       "aac",
+      "-movflags",
+      "+faststart",
+      input.outputPath,
+    ],
+    input.workingDir,
+  );
+}
+
+export async function muxVideoWithAudio(input: {
+  videoPath: string;
+  audioPath: string;
+  outputPath: string;
+  workingDir: string;
+}): Promise<void> {
+  const env = getVideoServiceEnv();
+  await runCommand(
+    env.FFMPEG_PATH,
+    [
+      "-y",
+      "-i",
+      input.videoPath,
+      "-i",
+      input.audioPath,
+      "-map",
+      "0:v:0",
+      "-map",
+      "1:a:0",
+      "-c:v",
+      "copy",
+      "-c:a",
+      "aac",
+      "-b:a",
+      "192k",
+      "-shortest",
       "-movflags",
       "+faststart",
       input.outputPath,

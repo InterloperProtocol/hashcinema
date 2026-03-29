@@ -1,6 +1,6 @@
 param(
   [string]$ProjectId = "hashart-fun",
-  [string]$BackendId = "hashcinema",
+  [string]$BackendId = "hypercinema",
   [string]$Location = "us-central1",
   [string]$EnvFile = ".env.local"
 )
@@ -49,6 +49,12 @@ $defaults = @{
   WORKER_MAX_BODY_BYTES = "32768"
 }
 
+$secretNameOverrides = @{
+  APP_BASE_URL = "APP_BASE_URL_HYPERCINEMA"
+  VIDEO_API_BASE_URL = "VIDEO_API_BASE_URL_HYPERCINEMA"
+  WORKER_URL = "WORKER_URL_HYPERCINEMA"
+}
+
 if (-not $envMap.ContainsKey("PAYMENT_MASTER_SEED_HEX")) {
   $null = gcloud secrets describe PAYMENT_MASTER_SEED_HEX --project=$ProjectId --format="value(name)" 2>$null
   if ($LASTEXITCODE -ne 0) {
@@ -74,23 +80,24 @@ $updated = 0
 
 foreach ($key in $keys) {
   $value = [string]$envMap[$key]
-  $null = gcloud secrets describe $key --project=$ProjectId --format="value(name)" 2>$null
+  $secretName = if ($secretNameOverrides.ContainsKey($key)) { $secretNameOverrides[$key] } else { $key }
+  $null = gcloud secrets describe $secretName --project=$ProjectId --format="value(name)" 2>$null
 
   $tmp = [System.IO.Path]::GetTempFileName()
   [System.IO.File]::WriteAllText($tmp, $value, [System.Text.UTF8Encoding]::new($false))
 
   if ($LASTEXITCODE -ne 0) {
-    gcloud secrets create $key --project=$ProjectId --replication-policy="automatic" --data-file=$tmp --quiet | Out-Null
+    gcloud secrets create $secretName --project=$ProjectId --replication-policy="automatic" --data-file=$tmp --quiet | Out-Null
     if ($LASTEXITCODE -ne 0) {
       Remove-Item $tmp -Force
-      throw "Failed to create secret $key"
+      throw "Failed to create secret $secretName"
     }
     $created++
   } else {
-    gcloud secrets versions add $key --project=$ProjectId --data-file=$tmp --quiet | Out-Null
+    gcloud secrets versions add $secretName --project=$ProjectId --data-file=$tmp --quiet | Out-Null
     if ($LASTEXITCODE -ne 0) {
       Remove-Item $tmp -Force
-      throw "Failed to add version for secret $key"
+      throw "Failed to add version for secret $secretName"
     }
     $updated++
   }

@@ -17,9 +17,11 @@ WORKDIR /app
 
 ENV NODE_ENV=production
 ENV PORT=8090
+ENV YT_DLP_PATH=yt-dlp
 
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends ffmpeg ca-certificates \
+  && apt-get install -y --no-install-recommends ffmpeg ca-certificates python3 python3-pip \
+  && pip3 install --no-cache-dir yt-dlp \
   && rm -rf /var/lib/apt/lists/*
 
 COPY package.json package-lock.json ./

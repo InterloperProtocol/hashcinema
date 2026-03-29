@@ -100,6 +100,30 @@ export interface StoryCard {
   transitionLabel: string;
 }
 
+export type TianezhaTestVerdict = "pass" | "warn" | "fail";
+
+export interface TianezhaWorldbuilderTest {
+  name: string;
+  verdict: TianezhaTestVerdict;
+  detail: string;
+}
+
+export interface TianezhaWorldbuilderState {
+  model: "tianezha";
+  worldName: string;
+  sourceKind?: JobRequestKind;
+  knowledgeBase?: string[];
+  manifold: {
+    anchorPoints: string[];
+    tangentVectors: string[];
+    continuityRules: string[];
+  };
+  storyline: string[];
+  tests: TianezhaWorldbuilderTest[];
+  verdict: TianezhaTestVerdict;
+  summary: string;
+}
+
 export interface JobDocument {
   jobId: string;
   wallet: string;
@@ -273,6 +297,7 @@ export interface ReportDocument {
   storyBeats?: string[];
   keyEvents?: WalletKeyEvent[];
   walletProfile?: WalletProfile;
+  worldbuilder?: TianezhaWorldbuilderState | null;
   analysisV2?: ReportAnalysisV2;
 }
 
@@ -383,6 +408,7 @@ export interface WalletStory {
   storyBeats?: string[];
   keyEvents?: WalletKeyEvent[];
   walletProfile?: WalletProfile;
+  worldbuilder?: TianezhaWorldbuilderState | null;
   videoIdentitySheet?: VideoIdentitySheet;
   sceneStateSequence?: SceneState[];
   videoPromptSequence?: VideoPromptScene[];

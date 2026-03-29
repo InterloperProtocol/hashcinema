@@ -26,6 +26,7 @@ const serviceEnvSchema = z.object({
   RENDER_STALE_MS: z.coerce.number().int().min(60_000).default(20 * 60_000),
   RENDER_RECOVERY_BATCH_LIMIT: z.coerce.number().int().positive().default(20),
   FFMPEG_PATH: z.string().min(1).default("ffmpeg"),
+  YT_DLP_PATH: z.string().min(1).default("yt-dlp"),
   FIREBASE_PROJECT_ID: z.string().min(1),
   FIREBASE_CLIENT_EMAIL: z.string().min(1).optional(),
   FIREBASE_PRIVATE_KEY: z.string().min(1).optional(),

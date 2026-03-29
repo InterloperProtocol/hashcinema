@@ -135,6 +135,7 @@ export function CinemaGeneratorClient(input: {
   const [storyNotes, setStoryNotes] = useState("");
   const [characterReferences, setCharacterReferences] = useState("");
   const [visualReferences, setVisualReferences] = useState("");
+  const [sourceMediaUrl, setSourceMediaUrl] = useState("");
   const [lyrics, setLyrics] = useState("");
   const [dialogue, setDialogue] = useState("");
   const [imageReferences, setImageReferences] = useState(["", "", "", ""]);
@@ -203,6 +204,7 @@ export function CinemaGeneratorClient(input: {
               packageType,
               stylePreset,
               requestedPrompt: creativeDirection,
+              sourceMediaUrl: sourceMediaUrl.trim() || undefined,
               audioEnabled: config.audioMode === "required" ? true : audioEnabled,
               pricingMode: config.pricingMode,
               visibility: config.visibility,
@@ -511,6 +513,21 @@ export function CinemaGeneratorClient(input: {
                 </select>
               </div>
             </div>
+
+            {config.requestKind !== "token_video" ? (
+              <div className="field">
+                <span>Source link</span>
+                <input
+                  value={sourceMediaUrl}
+                  onChange={(event) => setSourceMediaUrl(event.target.value)}
+                  placeholder="YouTube or Spotify link"
+                  disabled={isSubmitting}
+                />
+                <p className="route-summary compact">
+                  Paste a source link here and the stack will pull transcript, keep the render audio external, and stitch the sourced track later.
+                </p>
+              </div>
+            ) : null}
 
             <details className="optional-panel" open={config.requestKind === "bedtime_story"}>
               <summary>Story box</summary>

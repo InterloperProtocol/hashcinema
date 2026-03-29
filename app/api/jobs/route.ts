@@ -4,6 +4,7 @@ import {
   findRecentReusableTokenJob,
   rollbackUnpaidJob,
 } from "@/lib/jobs/repository";
+import { detectSourceMediaProvider } from "@/lib/cinema/sourceMedia";
 import { ensurePaymentAddressSubscribedToHeliusWebhook } from "@/lib/helius/webhook-subscriptions";
 import { logger } from "@/lib/logging/logger";
 import { resolveMemecoinMetadata } from "@/lib/memecoins/metadata";
@@ -71,6 +72,8 @@ const promptVideoSchema = sharedCinemaSchema.extend({
   ]),
   subjectName: z.string().min(2).max(120),
   subjectDescription: z.string().max(4_000).optional(),
+  sourceMediaUrl: z.string().url().optional(),
+  sourceTranscript: z.string().max(20_000).optional(),
 });
 
 const createJobSchema = z.union([tokenVideoSchema, promptVideoSchema]);
@@ -365,16 +368,21 @@ export async function POST(request: NextRequest) {
       packageType: payload.packageType as PackageType,
       subjectName: payload.subjectName,
       subjectDescription: payload.subjectDescription?.trim() || null,
+      sourceMediaUrl: payload.sourceMediaUrl?.trim() || null,
+      sourceMediaProvider: detectSourceMediaProvider(payload.sourceMediaUrl?.trim() || null),
       stylePreset:
         payload.stylePreset ??
         (payload.requestKind === "bedtime_story" ? "mythic_poster" : "hyperflow_assembly"),
       requestedPrompt: payload.requestedPrompt?.trim() || null,
+      sourceTranscript: payload.sourceTranscript?.trim() || null,
       audioEnabled:
-        payload.requestKind === "bedtime_story" ||
-        payload.requestKind === "music_video" ||
-        payload.requestKind === "scene_recreation"
-          ? payload.audioEnabled ?? true
-          : payload.audioEnabled ?? false,
+        detectSourceMediaProvider(payload.sourceMediaUrl?.trim() || null)
+          ? false
+          : payload.requestKind === "bedtime_story" ||
+              payload.requestKind === "music_video" ||
+              payload.requestKind === "scene_recreation"
+            ? payload.audioEnabled ?? true
+            : payload.audioEnabled ?? false,
       pricingMode,
       visibility,
       experience,

@@ -824,6 +824,16 @@ Act 3 environments:
 
 ---
 
+## Occasion Inspiration Bank (gift / celebration briefs)
+
+### awareness_avenue_bestselling_gifts
+Source: https://www.awareness-avenue.com/collections/shop_bestselling_gifts
+Use this as an occasions reference for birthdays, anniversaries, holidays, thank-you gifts, milestone moments, and other celebratory briefs.
+Tone: warm, giftable, occasion-first, and easy to personalize.
+Visuals: wrapped presents, handwritten tags, confetti, keepsake moments, glowing shelves, and celebration-card imagery.
+
+---
+
 ## Sound Phrase Bank (ready-to-use cues)
 
 Use these as literal sound cue tokens. Mix 3-6 per scene.
@@ -1032,4 +1042,3 @@ Scene 2:
 
 Scene N:
 (repeat...)
-

@@ -16,7 +16,9 @@ import { buildSceneChunks, normalizeScenes } from "./pipeline/scene-plan";
 import {
   concatClips,
   generateThumbnail,
+  downloadSourceMediaArtifacts,
   stageClipFiles,
+  muxVideoWithAudio,
   uploadLocalFile,
 } from "./pipeline/media";
 import { GenerateClipInput, VertexVeoClient } from "./providers/vertex-veo";
@@ -62,6 +64,33 @@ function normalizeResolution(
     return value;
   }
   return fallback;
+}
+
+function detectSourceMediaProvider(value?: string | null): "youtube" | "spotify" | null {
+  const trimmed = value?.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  try {
+    const url = new URL(trimmed);
+    const host = url.hostname.toLowerCase();
+    if (
+      host === "youtu.be" ||
+      host.endsWith("youtube.com") ||
+      host.endsWith("youtube-nocookie.com")
+    ) {
+      return "youtube";
+    }
+
+    if (host.endsWith("spotify.com")) {
+      return "spotify";
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
 }
 
 export function resolveRenderConfig(input: {
@@ -194,6 +223,15 @@ export class RenderService {
     const env = getVideoServiceEnv();
 
     const metadata = record.request.metadata ?? record.request.googleVeo;
+    const sourceMediaProvider =
+      metadata?.storyMetadata?.sourceMediaProvider === "youtube" ||
+      metadata?.storyMetadata?.sourceMediaProvider === "spotify"
+        ? metadata.storyMetadata.sourceMediaProvider
+        : detectSourceMediaProvider(metadata?.storyMetadata?.sourceMediaUrl ?? null);
+    const sourceAudioMode =
+      sourceMediaProvider === "youtube" || sourceMediaProvider === "spotify"
+        ? "source_track"
+        : "generated";
     const { model, resolution } = resolveRenderConfig({
       metadata,
       requestResolution: record.request.resolution,
@@ -201,7 +239,8 @@ export class RenderService {
       envResolution: env.VEO_OUTPUT_RESOLUTION,
     });
     const styleHints = metadata?.styleHints ?? [];
-    const generateAudio = metadata?.generateAudio ?? record.request.withSound;
+    const generateAudio =
+      sourceAudioMode === "source_track" ? false : metadata?.generateAudio ?? record.request.withSound;
     const chunks = buildSceneChunks({
       request: record.request,
       maxClipSeconds: env.VEO_MAX_CLIP_SECONDS,
@@ -239,6 +278,8 @@ export class RenderService {
     const { directory, clipPaths } = await stageClipFiles({ clipUris });
     const outputVideoPath = path.join(directory, "final.mp4");
     const outputThumbPath = path.join(directory, "thumbnail.jpg");
+    let sourceThumbnailPath: string | null = null;
+    let finalVideoPath = outputVideoPath;
 
     try {
       await concatClips({
@@ -246,15 +287,41 @@ export class RenderService {
         outputPath: outputVideoPath,
         workingDir: directory,
       });
-      await generateThumbnail({
-        videoPath: outputVideoPath,
-        outputPath: outputThumbPath,
-        workingDir: directory,
-      });
+
+      if (sourceAudioMode === "source_track") {
+        const sourceArtifacts = await downloadSourceMediaArtifacts({
+          sourceUrls: [
+            metadata?.storyMetadata?.sourceMediaUrl ?? null,
+            metadata?.storyMetadata?.sourceEmbedUrl ?? null,
+          ].filter((value): value is string => Boolean(value)),
+          workingDir: directory,
+        });
+        sourceThumbnailPath = sourceArtifacts.thumbnailPath;
+        finalVideoPath = path.join(directory, "final-source-audio.mp4");
+        await muxVideoWithAudio({
+          videoPath: outputVideoPath,
+          audioPath: sourceArtifacts.audioPath,
+          outputPath: finalVideoPath,
+          workingDir: directory,
+        });
+      }
+
+      try {
+        await generateThumbnail({
+          videoPath: finalVideoPath,
+          outputPath: outputThumbPath,
+          workingDir: directory,
+        });
+      } catch (error) {
+        if (!sourceThumbnailPath) {
+          throw error;
+        }
+        await fs.copyFile(sourceThumbnailPath, outputThumbPath);
+      }
 
       const [videoUrl, thumbnailUrl] = await Promise.all([
         uploadLocalFile({
-          localPath: outputVideoPath,
+          localPath: finalVideoPath,
           storagePath: `video-renders/${record.jobId}/final.mp4`,
           contentType: "video/mp4",
         }),

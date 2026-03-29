@@ -1,6 +1,8 @@
 import { buildContinuationPrompt, buildStoryCards } from "@/lib/cinema/storyCards";
+import { detectSourceMediaProvider, sourceMediaAudioPolicy } from "@/lib/cinema/sourceMedia";
 import { getTokenVideoStylePreset } from "@/lib/memecoins/styles";
 import { JobDocument, ReportDocument, WalletStory } from "@/lib/types/domain";
+import { buildTianezhaWorldbuilder } from "@/lib/worldbuilder/tianezha";
 
 function trimOrNull(value: string | null | undefined): string | null {
   const trimmed = value?.trim();
@@ -22,6 +24,14 @@ function requestKindLabel(requestKind: JobDocument["requestKind"]): string {
 }
 
 function audioDirection(job: JobDocument): string {
+  const sourceMediaProvider =
+    job.sourceMediaProvider === "youtube" || job.sourceMediaProvider === "spotify"
+      ? job.sourceMediaProvider
+      : detectSourceMediaProvider(job.sourceMediaUrl);
+  if (sourceMediaAudioPolicy(sourceMediaProvider) === "source_track") {
+    return `Audio direction: keep this render silent and preserve the source-link timing; the ${sourceMediaProvider} track or lyric spine will be stitched in later.`;
+  }
+
   switch (job.requestKind) {
     case "bedtime_story":
       return "Audio direction: gentle narration with very light classical music.";
@@ -188,11 +198,20 @@ function buildNarrativeSummary(job: JobDocument): string {
           ? "A source scene becomes a trailer-grade recreation."
           : "A prompt-led cinematic brief becomes a short-form visual story.");
   const requested = trimOrNull(job.requestedPrompt);
+  const sourceMediaProvider =
+    job.sourceMediaProvider === "youtube" || job.sourceMediaProvider === "spotify"
+      ? job.sourceMediaProvider
+      : detectSourceMediaProvider(job.sourceMediaUrl);
+  const sourceLine =
+    sourceMediaAudioPolicy(sourceMediaProvider) === "source_track"
+      ? `Source-link policy: the ${sourceMediaProvider} track stays external and the render stays silent until mux time.`
+      : null;
 
   return [
     `${subject} is staged as a ${job.videoSeconds}-second ${requestKindLabel(job.requestKind)}.`,
     description,
     audioDirection(job),
+    sourceLine,
     requested ? `Creative direction: ${requested}` : null,
   ]
     .filter(Boolean)
@@ -206,6 +225,11 @@ export function buildPromptVideoArtifacts(input: {
   story: WalletStory;
 } {
   const style = getTokenVideoStylePreset(input.job.stylePreset);
+  const sourceMediaProvider =
+    input.job.sourceMediaProvider === "youtube" || input.job.sourceMediaProvider === "spotify"
+      ? input.job.sourceMediaProvider
+      : detectSourceMediaProvider(input.job.sourceMediaUrl);
+  const sourceAudioMode = sourceMediaAudioPolicy(sourceMediaProvider);
   const subjectName =
     trimOrNull(input.job.subjectName) ??
     (input.job.requestKind === "bedtime_story"
@@ -216,19 +240,23 @@ export function buildPromptVideoArtifacts(input: {
           ? "Scene Recreation Brief"
           : "HashCinema Brief");
   const subjectDescription = trimOrNull(input.job.subjectDescription);
+  const sourceTranscript = trimOrNull(input.job.sourceTranscript);
   const narrativeSummary = buildNarrativeSummary(input.job);
   const storyCards = buildStoryCards({
     requestKind: input.job.requestKind,
     subjectName,
     subjectDescription,
     requestedPrompt: trimOrNull(input.job.requestedPrompt),
+    sourceTranscript,
     storyBeats: null,
     audioEnabled:
-      typeof input.job.audioEnabled === "boolean"
-        ? input.job.audioEnabled
-        : input.job.requestKind === "bedtime_story" ||
-            input.job.requestKind === "music_video" ||
-            input.job.requestKind === "scene_recreation",
+      sourceAudioMode === "source_track"
+        ? false
+        : typeof input.job.audioEnabled === "boolean"
+          ? input.job.audioEnabled
+          : input.job.requestKind === "bedtime_story" ||
+              input.job.requestKind === "music_video" ||
+              input.job.requestKind === "scene_recreation",
   });
   const storyBeats = buildStoryBeats({
     job: input.job,
@@ -239,11 +267,30 @@ export function buildPromptVideoArtifacts(input: {
     subjectName,
     subjectDescription,
     requestedPrompt: trimOrNull(input.job.requestedPrompt),
+    sourceTranscript,
     storyBeats,
   });
   const behaviorPatterns = buildBehaviorPatterns(input.job, style.label);
   const funObservations = buildFunObservations(input.job);
   const memorableMoments = buildMemorableMoments(input.job);
+  const audioEnabled =
+    sourceAudioMode === "source_track"
+      ? false
+      : typeof input.job.audioEnabled === "boolean"
+        ? input.job.audioEnabled
+        : input.job.requestKind === "bedtime_story" ||
+            input.job.requestKind === "music_video" ||
+            input.job.requestKind === "scene_recreation";
+  const worldbuilder = buildTianezhaWorldbuilder({
+    storyKind: input.job.requestKind,
+    subjectName,
+    subjectDescription,
+    requestedPrompt: trimOrNull(input.job.requestedPrompt),
+    sourceMediaUrl: input.job.sourceMediaUrl,
+    sourceMediaProvider,
+    sourceTranscript,
+    audioEnabled,
+  });
 
   const story: WalletStory = {
     wallet: input.job.wallet,
@@ -253,15 +300,14 @@ export function buildPromptVideoArtifacts(input: {
     experience: input.job.experience,
     subjectName,
     subjectDescription,
+    sourceMediaUrl: input.job.sourceMediaUrl ?? null,
+    sourceEmbedUrl: input.job.sourceEmbedUrl ?? null,
+    sourceMediaProvider,
+    sourceTranscript,
     stylePreset: style.id,
     styleLabel: style.label,
     requestedPrompt: trimOrNull(input.job.requestedPrompt),
-    audioEnabled:
-      typeof input.job.audioEnabled === "boolean"
-        ? input.job.audioEnabled
-        : input.job.requestKind === "bedtime_story" ||
-            input.job.requestKind === "music_video" ||
-            input.job.requestKind === "scene_recreation",
+    audioEnabled,
     storyCards,
     continuationPrompt,
     rangeDays: input.job.rangeDays,
@@ -292,6 +338,7 @@ export function buildPromptVideoArtifacts(input: {
     funObservations,
     narrativeSummary,
     storyBeats,
+    worldbuilder,
     tokenMetadata: [],
   };
 
@@ -308,6 +355,10 @@ export function buildPromptVideoArtifacts(input: {
     creatorEmail: input.job.creatorEmail ?? null,
     subjectName,
     subjectDescription,
+    sourceMediaUrl: input.job.sourceMediaUrl ?? null,
+    sourceEmbedUrl: input.job.sourceEmbedUrl ?? null,
+    sourceMediaProvider,
+    sourceTranscript,
     stylePreset: style.id,
     styleLabel: style.label,
     durationSeconds: input.job.videoSeconds,
@@ -330,6 +381,7 @@ export function buildPromptVideoArtifacts(input: {
     funObservations,
     narrativeSummary,
     storyBeats,
+    worldbuilder,
   };
 
   return {

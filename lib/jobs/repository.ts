@@ -506,6 +506,10 @@ export async function createPromptVideoJob(input: {
   packageType: PackageType;
   subjectName: string;
   subjectDescription?: string | null;
+  sourceMediaUrl?: string | null;
+  sourceEmbedUrl?: string | null;
+  sourceMediaProvider?: string | null;
+  sourceTranscript?: string | null;
   stylePreset?: VideoStyleId | null;
   requestedPrompt?: string | null;
   audioEnabled?: boolean | null;
@@ -557,6 +561,10 @@ export async function createPromptVideoJob(input: {
       creatorEmail: input.creatorEmail ?? null,
       subjectName: input.subjectName.trim(),
       subjectDescription: input.subjectDescription?.trim() || null,
+      sourceMediaUrl: input.sourceMediaUrl?.trim() || null,
+      sourceEmbedUrl: input.sourceEmbedUrl?.trim() || null,
+      sourceMediaProvider: input.sourceMediaProvider?.trim() || null,
+      sourceTranscript: input.sourceTranscript?.trim() || null,
       stylePreset: input.stylePreset ?? null,
       requestedPrompt: input.requestedPrompt?.trim() || null,
       audioEnabled:

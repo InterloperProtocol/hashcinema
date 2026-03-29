@@ -4,7 +4,7 @@ env:
   - variable: ANALYTICS_ENGINE_MODE
     secret: ANALYTICS_ENGINE_MODE
   - variable: APP_BASE_URL
-    secret: APP_BASE_URL
+    secret: APP_BASE_URL_HYPERCINEMA
   - variable: FIREBASE_CLIENT_EMAIL
     secret: FIREBASE_CLIENT_EMAIL
   - variable: FIREBASE_PRIVATE_KEY
@@ -46,7 +46,7 @@ env:
   - variable: SWEEP_MIN_LAMPORTS
     secret: SWEEP_MIN_LAMPORTS
   - variable: VIDEO_API_BASE_URL
-    secret: VIDEO_API_BASE_URL
+    secret: VIDEO_API_BASE_URL_HYPERCINEMA
   - variable: VIDEO_API_KEY
     secret: VIDEO_API_KEY
   - variable: VIDEO_ENGINE
@@ -64,4 +64,4 @@ env:
   - variable: WORKER_TOKEN
     secret: WORKER_TOKEN
   - variable: WORKER_URL
-    secret: WORKER_URL
+    secret: WORKER_URL_HYPERCINEMA

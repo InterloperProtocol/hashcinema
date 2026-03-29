@@ -189,6 +189,10 @@ function buildCinematicPromptInput(story: WalletStory): Record<string, unknown> 
     subjectName: story.subjectName,
     subjectSymbol: story.subjectSymbol,
     subjectDescription: story.subjectDescription,
+    sourceMediaUrl: story.sourceMediaUrl,
+    sourceEmbedUrl: story.sourceEmbedUrl,
+    sourceMediaProvider: story.sourceMediaProvider,
+    sourceTranscript: story.sourceTranscript,
     stylePreset: story.stylePreset,
     styleLabel: story.styleLabel,
     requestedPrompt: story.requestedPrompt,
@@ -208,6 +212,7 @@ function buildCinematicPromptInput(story: WalletStory): Record<string, unknown> 
     behaviorPatterns: story.behaviorPatterns,
     funObservations: story.funObservations,
     keyEvents: story.keyEvents,
+    worldbuilder: story.worldbuilder,
   };
 }
 

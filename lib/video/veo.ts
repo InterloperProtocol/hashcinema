@@ -2,6 +2,11 @@ import {
   alignSceneStatesToCount,
   buildSceneContinuityPrompt,
 } from "@/lib/analytics/videoCoherence";
+import {
+  detectSourceMediaProvider,
+  sourceMediaAudioPolicy,
+  type SourceMediaProvider,
+} from "@/lib/cinema/sourceMedia";
 import type { SceneState, VideoIdentitySheet, VideoPromptScene } from "@/lib/analytics/types";
 import { round } from "@/lib/utils";
 import { rankTokenMetadataForStory } from "@/lib/tokens/metadata-selection";
@@ -61,6 +66,10 @@ export interface GoogleVeoRenderPayload {
     subjectChain?: WalletStory["subjectChain"];
     subjectName?: string | null;
     subjectSymbol?: string | null;
+    sourceMediaUrl?: string | null;
+    sourceEmbedUrl?: string | null;
+    sourceMediaProvider?: WalletStory["sourceMediaProvider"];
+    sourceTranscript?: string | null;
     experience?: WalletStory["experience"];
     visibility?: WalletStory["visibility"];
     audioEnabled?: boolean | null;
@@ -68,6 +77,7 @@ export interface GoogleVeoRenderPayload {
     packageType: WalletStory["packageType"];
     durationSeconds: number;
     analytics: WalletStory["analytics"];
+    worldbuilder?: WalletStory["worldbuilder"];
   };
   coherence?: VeoCoherenceMetadata;
 }
@@ -109,6 +119,121 @@ function compactSentence(value: string): string {
   }
 
   return /[.!?]$/.test(trimmed) ? trimmed : `${trimmed}.`;
+}
+
+function normalizeCreativePromptText(value: string): string {
+  return value.replace(/\s+/g, " ").replace(/\s+([,.;!?])/g, "$1").trim();
+}
+
+function hasExternalLink(value: string): boolean {
+  return /\b(?:https?:\/\/|www\.)\S+/i.test(value);
+}
+
+function sanitizeCreativePromptText(value: string, fallback: string): string {
+  const normalized = normalizeCreativePromptText(value);
+  if (!normalized) {
+    return fallback;
+  }
+
+  if (hasExternalLink(normalized)) {
+    return fallback;
+  }
+
+  return normalized;
+}
+
+function buildWorldbuilderPromptLines(worldbuilder?: WalletStory["worldbuilder"]): string[] {
+  if (!worldbuilder) {
+    return [];
+  }
+
+  const lines = [
+    `Worldbuilder: ${worldbuilder.model} / ${worldbuilder.worldName}.`,
+    `Worldbuilder verdict: ${worldbuilder.verdict}.`,
+    `Worldbuilder summary: ${truncateText(worldbuilder.summary, 220)}.`,
+  ];
+
+  if (worldbuilder.knowledgeBase?.length) {
+    lines.push(`Worldbuilder knowledge base: ${worldbuilder.knowledgeBase.slice(0, 4).join(" | ")}.`);
+  }
+
+  if (worldbuilder.manifold.continuityRules?.length) {
+    lines.push(
+      `Worldbuilder continuity rules: ${worldbuilder.manifold.continuityRules.slice(0, 3).join(" | ")}.`,
+    );
+  }
+
+  if (worldbuilder.storyline?.length) {
+    lines.push(`Worldbuilder storyline: ${worldbuilder.storyline.slice(0, 3).join(" | ")}.`);
+  }
+
+  return lines;
+}
+
+function buildSourceContextLines(story: WalletStory, sourceMediaProvider: SourceMediaProvider | null): string[] {
+  if (!sourceMediaProvider) {
+    return [];
+  }
+
+  const lines = [
+    `Source context: ${sourceMediaProvider} source is canonical. Keep the generation silent so the external track can be stitched later.`,
+  ];
+
+  if (story.sourceTranscript?.trim()) {
+    lines.push(`Source transcript spine: ${truncateText(story.sourceTranscript, 220)}.`);
+  }
+
+  if (story.sourceEmbedUrl) {
+    lines.push("Source embed review is available internally, but do not invent replacement music.");
+  }
+
+  return lines;
+}
+
+function neutralStoryCardLines(requestKind?: WalletStory["storyKind"]): string[] {
+  switch (requestKind) {
+    case "bedtime_story":
+      return [
+        "hook: Hook | teaser=Open in a calm, safe world with soft wonder and no sudden tension spikes. | visual=Introduce the bedtime world gently. | narration=Set a reassuring tone. | transition=Break in",
+        "build: Build | teaser=Introduce the main characters and the bedtime promise they are trying to keep. | visual=Keep the motion soft and readable. | narration=Keep the middle cozy. | transition=Push harder",
+        "payoff: Payoff | teaser=Let the middle feel magical but reassuring, never frantic or overstimulating. | visual=Keep the climax warm and soft. | narration=Stay soothing. | transition=Stick the landing",
+        "continuation: Next Step | teaser=Close with comfort, resolution, and an unmistakable invitation to rest. | visual=Leave the last frame warm and quiet. | narration=End on a restful note. | transition=Queue sequel",
+      ];
+    case "music_video":
+      return [
+        "hook: Hook | teaser=Open on the track identity and the hook that defines the whole cut. | visual=Launch with a bold performance image. | narration=Introduce the track with confidence. | transition=Break in",
+        "build: Build | teaser=Let the middle ride the beat, the choreography, or the performance details. | visual=Raise motion and scale while keeping the subject locked. | narration=Keep the momentum moving. | transition=Push harder",
+        "payoff: Payoff | teaser=Escalate into a chorus-sized visual turn that feels designed for replay. | visual=Treat the climax like a poster frame. | narration=Land the hook hard. | transition=Stick the landing",
+        "continuation: Next Step | teaser=Close on a final frame that lands like a poster, playlist cover, or tour card. | visual=Leave room for an encore. | narration=Keep the ending open. | transition=Queue sequel",
+      ];
+    case "scene_recreation":
+      return [
+        "hook: Hook | teaser=Open by naming the source scene and the emotional promise it carries. | visual=Preserve the source-scene atmosphere and blocking. | narration=Set the opening line cleanly. | transition=Break in",
+        "build: Build | teaser=Preserve the dialogue spine and the blocking rhythm while reshaping the skin. | visual=Raise motion without changing the source identity. | narration=Keep the middle act tight. | transition=Push harder",
+        "payoff: Payoff | teaser=Escalate into a trailer-grade reinterpretation that stays faithful but sharper. | visual=Treat the climax like a trailer finish. | narration=Keep the payoff focused. | transition=Stick the landing",
+        "continuation: Next Step | teaser=Close on a final frame that feels like a remembered scene rebuilt at higher voltage. | visual=Leave room for a sequel beat. | narration=Keep the handoff clean. | transition=Queue sequel",
+      ];
+    default:
+      return [
+        "hook: Hook | teaser=Establish the world, mood, and visual grammar before the action starts. | visual=Open with a clear establishing image. | narration=Introduce the brief cleanly. | transition=Break in",
+        "build: Build | teaser=Introduce the characters, symbols, or references that define the story. | visual=Raise motion, scale, or camera aggression while keeping the subject stable. | narration=Keep the middle moving. | transition=Push harder",
+        "payoff: Payoff | teaser=Escalate the brief into a cinematic middle with stronger motion and clearer stakes. | visual=Treat the climax like a poster frame. | narration=Land the emotional turn. | transition=Stick the landing",
+        "continuation: Next Step | teaser=Land on a memorable closing image that feels designed to be replayed or shared. | visual=Leave the final image open enough for a sequel. | narration=Keep the ending clean. | transition=Queue sequel",
+      ];
+  }
+}
+
+function neutralStoryBeatLine(requestKind?: WalletStory["storyKind"]): string {
+  switch (requestKind) {
+    case "bedtime_story":
+      return "Story beats: open in a calm world | introduce the bedtime promise | keep the middle cozy | close with rest.";
+    case "music_video":
+      return "Story beats: open on the track identity | ride the beat through the middle | build to a chorus-sized turn | end like a poster frame.";
+    case "scene_recreation":
+      return "Story beats: open by naming the source scene | preserve the dialogue spine | escalate into a sharper reinterpretation | close on a remembered frame.";
+    default:
+      return "Story beats: establish the world | introduce the characters | escalate the stakes | land on a memorable closing image.";
+  }
 }
 
 function sanitizePromptText(value: string): string {
@@ -564,18 +689,71 @@ function buildCreativeStoryPrompt(input: {
   script: GeneratedCinematicScript;
   generateAudio: boolean;
 }): string {
-  const subject = input.story.subjectName ?? "Untitled cinema brief";
-  const description = input.story.subjectDescription?.trim() ?? "Use the supplied story brief as the main source of truth.";
-  const direction = input.story.requestedPrompt?.trim() ?? "Keep the cut concise, visual, and replayable.";
+  const sourceMediaProvider =
+    input.story.sourceMediaProvider === "youtube" || input.story.sourceMediaProvider === "spotify"
+      ? input.story.sourceMediaProvider
+      : detectSourceMediaProvider(input.story.sourceMediaUrl);
+  const sourceAudioMode = sourceMediaAudioPolicy(sourceMediaProvider);
+  const subjectFallback =
+    input.story.storyKind === "bedtime_story"
+      ? "the supplied bedtime story"
+      : input.story.storyKind === "music_video"
+        ? "the supplied track"
+        : input.story.storyKind === "scene_recreation"
+          ? "the supplied source scene"
+          : "the supplied brief";
+  const descriptionFallback =
+    input.story.storyKind === "bedtime_story"
+      ? "Use the supplied bedtime story as the main source of truth."
+      : input.story.storyKind === "music_video"
+        ? "Use the supplied track or concept notes as the main source of truth."
+        : input.story.storyKind === "scene_recreation"
+          ? "Use the supplied source scene as the main source of truth."
+          : "Use the supplied brief as the main source of truth.";
+  const directionFallback =
+    input.story.storyKind === "bedtime_story"
+      ? "Keep the adaptation soft, safe, and soothing."
+      : input.story.storyKind === "music_video"
+        ? "Keep the beat, chorus, and performance language central."
+        : input.story.storyKind === "scene_recreation"
+          ? "Preserve the source scene's emotional spine, blocking, and timing without quoting external links or lyrics."
+          : "Keep the cut concise, visual, and replayable.";
+  const subject = sanitizeCreativePromptText(input.story.subjectName ?? "", subjectFallback);
+  const description = sanitizeCreativePromptText(
+    input.story.subjectDescription?.trim() ?? "",
+    descriptionFallback,
+  );
+  const direction = sanitizeCreativePromptText(
+    input.story.requestedPrompt?.trim() ?? "",
+    directionFallback,
+  );
+  const linkedSourceDetected = [
+    input.story.subjectName,
+    input.story.subjectDescription,
+    input.story.requestedPrompt,
+  ].some((value) => hasExternalLink(normalizeCreativePromptText(value ?? "")));
   const storyCards = input.story.storyCards?.length ? input.story.storyCards : [];
-  const storyCardLines = storyCards
-    .slice(0, 4)
-    .map(
-      (card) =>
-        `${card.phase}: ${card.title} | teaser=${card.teaser} | visual=${card.visualCue} | narration=${card.narrationCue} | transition=${card.transitionLabel}`,
-    )
-    .join("\n");
-  const beats = input.story.storyBeats?.slice(0, 6).join(" | ") ?? "beginning, escalation, closing image";
+  const storyCardLines = linkedSourceDetected
+    ? neutralStoryCardLines(input.story.storyKind).join("\n")
+    : storyCards
+        .slice(0, 4)
+        .map(
+          (card) =>
+            `${sanitizeCreativePromptText(card.phase, "hook")}: ${sanitizeCreativePromptText(card.title, subject)} | teaser=${sanitizeCreativePromptText(card.teaser, description)} | visual=${sanitizeCreativePromptText(card.visualCue, "Keep the frame cinematic and source-faithful.")} | narration=${sanitizeCreativePromptText(card.narrationCue, "Keep the narration concise and source-faithful.")} | transition=${sanitizeCreativePromptText(card.transitionLabel, "Next beat")}`,
+        )
+        .join("\n");
+  const beats =
+    linkedSourceDetected
+      ? neutralStoryBeatLine(input.story.storyKind)
+      : (input.story.storyBeats?.slice(0, 6)
+          .map((beat) => sanitizeCreativePromptText(beat, ""))
+          .filter(Boolean)
+          .join(" | ") ?? "");
+  const beatLine = beats
+    ? beats.startsWith("Story beats:")
+      ? beats
+      : `Story beats: ${beats}.`
+    : "Story beats: beginning, escalation, closing image.";
   const tone =
     input.story.storyKind === "bedtime_story"
       ? "Build a safe, gentle bedtime short with calm pacing, warm visuals, and reassuring narration."
@@ -585,25 +763,42 @@ function buildCreativeStoryPrompt(input: {
           ? "Build a trailer-grade scene recreation. Preserve dialogue cadence and blocking while remaking the skin."
           : "Build a cinematic short for a general topic or story, not a trading recap.";
   const audioRule =
-    input.story.storyKind === "bedtime_story"
-      ? "Narration must stay on and the music bed should feel like very light classical accompaniment."
-      : input.story.storyKind === "music_video"
-        ? input.generateAudio
-          ? "Audio is enabled. Follow the lyrics, beat, chorus, and musical dynamics without inventing new song facts."
-          : "Audio is muted for now, but the visual rhythm should still read like a music video ready for sound."
-        : input.story.storyKind === "scene_recreation"
+    sourceAudioMode === "source_track"
+      ? "Audio is disabled for generation. Keep the render silent so the external track or lyric spine can be stitched in later."
+      : input.story.storyKind === "bedtime_story"
+        ? "Narration must stay on and the music bed should feel like very light classical accompaniment."
+        : input.story.storyKind === "music_video"
           ? input.generateAudio
-            ? "Audio is enabled. Preserve the dialogue cadence and source-scene timing without inventing new quotes."
-            : "Audio is muted for now, but the reconstruction should still preserve dialogue timing and scene blocking."
-          : input.generateAudio
-            ? "Audio is enabled. Use sparse voiceover and a restrained score that follows the lyrics or dialogue notes when present."
-            : "No narration, no music, no sound effects. The visual edit carries the story alone.";
+            ? "Audio is enabled. Follow the lyrics, beat, chorus, and musical dynamics without inventing new song facts."
+            : "Audio is muted for now, but the visual rhythm should still read like a music video ready for sound."
+          : input.story.storyKind === "scene_recreation"
+            ? input.generateAudio
+              ? "Audio is enabled. Preserve the dialogue cadence and source-scene timing without inventing new quotes."
+              : "Audio is muted for now, but the reconstruction should still preserve dialogue timing and scene blocking."
+            : input.generateAudio
+              ? "Audio is enabled. Use sparse voiceover and a restrained score that follows the lyrics or dialogue notes when present."
+              : "No narration, no music, no sound effects. The visual edit carries the story alone.";
+
+  const sourceContextLines = buildSourceContextLines(input.story, sourceMediaProvider);
+  const worldbuilderLines = buildWorldbuilderPromptLines(input.story.worldbuilder);
 
   const sceneLines = input.script.scenes
     .slice(0, MAX_SCENES_IN_PROMPT)
     .map((scene) => {
       const imageAnchor = scene.imageUrl ? `image=${scene.imageUrl}` : "image=none";
-      return `Scene ${scene.sceneNumber} | visual=${truncateText(scene.visualPrompt, 160)} | narration=${truncateText(scene.narration, 100)} | ${imageAnchor}`;
+      const visual = linkedSourceDetected
+        ? "Keep the frame cinematic and source-faithful."
+        : sanitizeCreativePromptText(
+            scene.visualPrompt,
+            "Keep the frame cinematic and source-faithful.",
+          );
+      const narration = linkedSourceDetected
+        ? "Keep the narration concise and source-faithful."
+        : sanitizeCreativePromptText(
+            scene.narration,
+            "Keep the narration concise and source-faithful.",
+          );
+      return `Scene ${scene.sceneNumber} | visual=${truncateText(visual, 160)} | narration=${truncateText(narration, 100)} | ${imageAnchor}`;
     })
     .join("\n");
 
@@ -613,8 +808,10 @@ function buildCreativeStoryPrompt(input: {
     `Brief: ${description}`,
     `Direction: ${direction}`,
     audioRule,
-    "Hard constraints: stay faithful to the supplied brief, keep continuity coherent, and never shift into memecoin or wallet analytics language.",
-    `Story beats: ${beats}.`,
+    ...sourceContextLines,
+    ...worldbuilderLines,
+    "Hard constraints: stay faithful to the supplied brief, keep continuity coherent, never shift into memecoin or wallet analytics language, and do not surface raw URLs or link text in the rendered scene. If the source is YouTube or Spotify, treat the source link and transcript as canonical, keep the generated render silent, and do not invent replacement music.",
+    beatLine,
     storyCardLines ? `Story cards:\n${storyCardLines}` : "",
     "Scene reel:",
     sceneLines,
@@ -695,11 +892,19 @@ export function buildGoogleVeoRenderPayload(input: {
   model?: "veo-3.1-fast-generate-001";
   resolution?: "720p" | "1080p";
 }): GoogleVeoRenderPayload {
+  const sourceMediaProvider =
+    input.walletStory.sourceMediaProvider === "youtube" ||
+    input.walletStory.sourceMediaProvider === "spotify"
+      ? input.walletStory.sourceMediaProvider
+      : detectSourceMediaProvider(input.walletStory.sourceMediaUrl);
+  const sourceAudioMode = sourceMediaAudioPolicy(sourceMediaProvider);
   const generateAudio =
-    typeof input.walletStory.audioEnabled === "boolean"
-      ? input.walletStory.audioEnabled
-      : input.walletStory.storyKind === "bedtime_story" ||
-        input.walletStory.storyKind === "music_video";
+    sourceAudioMode === "source_track"
+      ? false
+      : typeof input.walletStory.audioEnabled === "boolean"
+        ? input.walletStory.audioEnabled
+        : input.walletStory.storyKind === "bedtime_story" ||
+          input.walletStory.storyKind === "music_video";
   const tokenMetadata = buildTokenMetadata(input.walletStory);
   const coherence = resolveCoherence({
     story: input.walletStory,
@@ -728,6 +933,13 @@ export function buildGoogleVeoRenderPayload(input: {
     styleHints: [
       "cinematic",
       "coherence-first",
+      ...(sourceMediaProvider
+        ? [
+            "source-linked",
+            sourceAudioMode === "source_track" ? "external-audio" : "source-faithful",
+            "source-transcript-aware",
+          ]
+        : []),
       ...(input.walletStory.storyKind === "token_video"
         ? ["memetic", "high-energy-edit", "captioned", "satirical"]
         : input.walletStory.storyKind === "bedtime_story"
@@ -747,13 +959,18 @@ export function buildGoogleVeoRenderPayload(input: {
       subjectChain: input.walletStory.subjectChain,
       subjectName: input.walletStory.subjectName,
       subjectSymbol: input.walletStory.subjectSymbol,
+      sourceMediaUrl: input.walletStory.sourceMediaUrl,
+      sourceEmbedUrl: input.walletStory.sourceEmbedUrl,
+      sourceMediaProvider,
+      sourceTranscript: input.walletStory.sourceTranscript,
       experience: input.walletStory.experience,
       visibility: input.walletStory.visibility,
-      audioEnabled: input.walletStory.audioEnabled,
+      audioEnabled: generateAudio,
       rangeDays: input.walletStory.rangeDays,
       packageType: input.walletStory.packageType,
       durationSeconds: input.walletStory.durationSeconds,
       analytics: input.walletStory.analytics,
+      worldbuilder: input.walletStory.worldbuilder ?? null,
     },
     coherence,
   };

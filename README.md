@@ -193,12 +193,18 @@ npm test
 
 ## Repo Skill
 
-Repo-local skill:
+Repo-local skills:
 
 - `skills/hasmedia/SKILL.md`
+- `skills/tianezha-worldbuilder/SKILL.md`
+- `skills/poly-manifold/SKILL.md`
+- `skills/awesome-physics-cognition-video-generation/SKILL.md`
+- `skills/newtongen/SKILL.md`
 
-Use it when an agent needs to:
+Use them when an agent needs to:
 
 - create a paid memecoin video over x402
 - poll job/report/video URLs
 - publish finished drops to GoonBook
+- resolve source-media context and keep source-linked renders silent until mux time
+- work from the physics-cognition and NewtonGen knowledge base

@@ -17,6 +17,7 @@ import {
   upsertReport,
   upsertVideo,
 } from "../lib/jobs/repository";
+import { resolveSourceMediaContext } from "../lib/cinema/sourceMedia";
 import { logger } from "../lib/logging/logger";
 import { generateReportPdf } from "../lib/pdf/report";
 import { extractPumpTrades } from "../lib/pump/filter";
@@ -356,9 +357,40 @@ async function processPromptVideoJob(input: {
     wallet: input.job.wallet,
   };
 
+  const sourceMedia = await timedStage(context, "resolve_source_media", () =>
+    resolveSourceMediaContext({
+      sourceMediaUrl: input.job.sourceMediaUrl,
+      subjectName: input.job.subjectName,
+      subjectDescription: input.job.subjectDescription,
+      requestedPrompt: input.job.requestedPrompt,
+      sourceTranscript: input.job.sourceTranscript,
+    }),
+  );
+  const sourceLinked = Boolean(sourceMedia.sourceMediaProvider);
+  const resolvedJob: JobDocument = {
+    ...input.job,
+    ...sourceMedia,
+    audioEnabled: sourceLinked ? false : input.job.audioEnabled,
+  };
+
+  if (
+    sourceMedia.sourceMediaUrl ||
+    sourceMedia.sourceEmbedUrl ||
+    sourceMedia.sourceMediaProvider ||
+    sourceMedia.sourceTranscript
+  ) {
+    await updateJob(input.job.jobId, {
+      sourceMediaUrl: sourceMedia.sourceMediaUrl,
+      sourceEmbedUrl: sourceMedia.sourceEmbedUrl,
+      sourceMediaProvider: sourceMedia.sourceMediaProvider,
+      sourceTranscript: sourceMedia.sourceTranscript,
+      audioEnabled: sourceLinked ? false : input.job.audioEnabled,
+    });
+  }
+
   await updateJobProgress(input.job.jobId, "generating_report");
   const computed = buildPromptVideoArtifacts({
-    job: input.job,
+    job: resolvedJob,
   });
 
   const summary = await timedStage(context, "generate_report_summary", async () =>
@@ -379,7 +411,7 @@ async function processPromptVideoJob(input: {
     jobId: input.job.jobId,
     videoUrl: null,
     thumbnailUrl: null,
-    duration: input.job.videoSeconds,
+    duration: resolvedJob.videoSeconds,
     renderStatus: "queued",
   });
 
@@ -411,7 +443,7 @@ async function processPromptVideoJob(input: {
       jobId: input.job.jobId,
       videoUrl: storedVideoUrl,
       thumbnailUrl,
-      duration: input.job.videoSeconds,
+      duration: resolvedJob.videoSeconds,
       renderStatus: "ready",
     }),
     updateJobStatus(input.job.jobId, "complete", {

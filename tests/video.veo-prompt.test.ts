@@ -1,5 +1,6 @@
 import { buildGoogleVeoRenderPayload } from "@/lib/video/veo";
 import { GeneratedCinematicScript, WalletStory } from "@/lib/types/domain";
+import { buildTianezhaWorldbuilder } from "@/lib/worldbuilder/tianezha";
 
 function buildStory(overrides: Partial<WalletStory> = {}): WalletStory {
   return {
@@ -352,5 +353,84 @@ describe("google veo prompt engine", () => {
       "Audio is enabled. Preserve the dialogue cadence and source-scene timing without inventing new quotes.",
     );
     expect(payload.prompt.includes("This is cinema, not analytics.")).toBe(false);
+  });
+
+  it("forces source-linked music videos to stay silent and carry worldbuilder context", () => {
+    const youtubeUrl = "https://www.youtube.com/watch?v=e5nyQmaq4k4";
+    const payload = buildGoogleVeoRenderPayload({
+      walletStory: buildStory({
+        storyKind: "music_video",
+        subjectName: "Neon Anthem",
+        subjectDescription: "A synthwave single gets trailer treatment.",
+        requestedPrompt: "Make the chorus feel enormous.",
+        sourceMediaUrl: youtubeUrl,
+        sourceTranscript: "1 - Open on the hook.\n2 - Ride the beat.",
+        worldbuilder: buildTianezhaWorldbuilder({
+          storyKind: "music_video",
+          subjectName: "Neon Anthem",
+          subjectDescription: "A synthwave single gets trailer treatment.",
+          requestedPrompt: "Make the chorus feel enormous.",
+          sourceMediaUrl: youtubeUrl,
+          sourceTranscript: "1 - Open on the hook.\n2 - Ride the beat.",
+          audioEnabled: true,
+        }),
+        audioEnabled: true,
+      }),
+      script: buildScript(),
+    });
+
+    expect(payload.generateAudio).toBe(false);
+    expect(payload.storyMetadata.audioEnabled).toBe(false);
+    expect(payload.storyMetadata.sourceMediaProvider).toBe("youtube");
+    expect(payload.storyMetadata.sourceMediaUrl).toBe(youtubeUrl);
+    expect(payload.storyMetadata.worldbuilder?.knowledgeBase).toEqual(
+      expect.arrayContaining([
+        "poly-manifold: manifold optimization, Euclidean geometry, Sphere, and SPD constraints",
+        "Awesome Physics Cognition-based Video Generation: physics-aware video generation survey and world-model map",
+        "NewtonGen: controllable text-to-video with Newtonian dynamics and motion control",
+      ]),
+    );
+    expect(payload.styleHints).toEqual(
+      expect.arrayContaining([
+        "source-linked",
+        "external-audio",
+        "source-transcript-aware",
+        "music-video",
+      ]),
+    );
+    expect(payload.prompt).toContain(
+      "Audio is disabled for generation. Keep the render silent so the external track or lyric spine can be stitched in later.",
+    );
+    expect(payload.prompt).toContain(
+      "Source context: youtube source is canonical. Keep the generation silent so the external track can be stitched later.",
+    );
+    expect(payload.prompt).toContain("Worldbuilder: tianezha /");
+    expect(payload.prompt).toContain("Source transcript spine: 1 - Open on the hook.");
+    expect(payload.prompt.includes(youtubeUrl)).toBe(false);
+  });
+
+  it("redacts URL-heavy creative briefs before they reach the Veo prompt", () => {
+    const youtubeUrl = "https://www.youtube.com/watch?v=e5nyQmaq4k4";
+    const payload = buildGoogleVeoRenderPayload({
+      walletStory: buildStory({
+        storyKind: "scene_recreation",
+        subjectName: youtubeUrl,
+        subjectDescription: `bitconnect edm remix\n${youtubeUrl}`,
+        requestedPrompt: `Lyrics or song notes: ${youtubeUrl}`,
+        audioEnabled: true,
+      }),
+      script: buildScript(),
+    });
+
+    expect(payload.prompt).toContain("the supplied source scene");
+    expect(payload.prompt).toContain(
+      "Use the supplied source scene as the main source of truth.",
+    );
+    expect(payload.prompt).toContain(
+      "Preserve the source scene's emotional spine, blocking, and timing without quoting external links or lyrics.",
+    );
+    expect(payload.prompt.includes(youtubeUrl)).toBe(false);
+    expect(payload.prompt.includes("bitconnect edm remix")).toBe(false);
+    expect(payload.prompt.includes("Lyrics or song notes")).toBe(false);
   });
 });

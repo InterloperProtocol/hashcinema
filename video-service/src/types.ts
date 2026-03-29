@@ -24,6 +24,39 @@ const analyticsSchema = z.object({
   styleClassification: z.string().optional(),
 });
 
+const sourceMediaProviderSchema = z.enum(["youtube", "spotify"]).nullable().optional();
+
+const tianezhaWorldbuilderSchema = z.object({
+  model: z.literal("tianezha"),
+  worldName: z.string().min(1),
+  sourceKind: z
+    .enum([
+      "wallet_recap",
+      "token_video",
+      "generic_cinema",
+      "bedtime_story",
+      "music_video",
+      "scene_recreation",
+    ])
+    .optional(),
+  knowledgeBase: z.array(z.string().min(1)).default([]),
+  manifold: z.object({
+    anchorPoints: z.array(z.string().min(1)).min(1),
+    tangentVectors: z.array(z.string().min(1)).min(1),
+    continuityRules: z.array(z.string().min(1)).min(1),
+  }),
+  storyline: z.array(z.string().min(1)).default([]),
+  tests: z.array(
+    z.object({
+      name: z.string().min(1),
+      verdict: z.enum(["pass", "warn", "fail"]),
+      detail: z.string().min(1),
+    }),
+  ).default([]),
+  verdict: z.enum(["pass", "warn", "fail"]),
+  summary: z.string().min(1),
+});
+
 const tokenMetadataSchema = z.object({
   mint: z.string().min(1),
   symbol: z.string().min(1),
@@ -88,11 +121,44 @@ const sceneMetadataSchema = z.object({
 });
 
 const storyMetadataSchema = z.object({
+  storyKind: z
+    .enum([
+      "wallet_recap",
+      "token_video",
+      "generic_cinema",
+      "bedtime_story",
+      "music_video",
+      "scene_recreation",
+    ])
+    .optional(),
   wallet: z.string().min(1),
+  subjectAddress: z.string().min(1).optional(),
+  subjectChain: z.enum(["solana", "ethereum", "bsc", "base"]).nullable().optional(),
+  subjectName: z.string().min(1).nullable().optional(),
+  subjectSymbol: z.string().min(1).nullable().optional(),
+  sourceMediaUrl: z.string().url().nullable().optional(),
+  sourceEmbedUrl: z.string().url().nullable().optional(),
+  sourceMediaProvider: sourceMediaProviderSchema,
+  sourceTranscript: z.string().min(1).nullable().optional(),
+  experience: z
+    .enum([
+      "legacy",
+      "hashcinema",
+      "trenchcinema",
+      "funcinema",
+      "familycinema",
+      "musicvideo",
+      "recreator",
+    ])
+    .nullable()
+    .optional(),
+  visibility: z.enum(["public", "private"]).nullable().optional(),
+  audioEnabled: z.boolean().nullable().optional(),
   rangeDays: z.number().int().positive(),
   packageType: z.enum(["1d", "2d", "3d"]),
   durationSeconds: z.number().int().positive(),
   analytics: analyticsSchema.partial().optional(),
+  worldbuilder: tianezhaWorldbuilderSchema.nullable().optional(),
 });
 
 const googleVeoMetadataSchema = z.object({

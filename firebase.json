@@ -2,5 +2,20 @@
   "firestore": {
     "rules": "firestore.rules",
     "indexes": "firestore.indexes.json"
-  }
+  },
+  "apphosting": [
+    {
+      "backendId": "hypercinema",
+      "rootDir": ".",
+      "ignore": [
+        "node_modules",
+        ".git",
+        ".next",
+        "coverage",
+        "video-service/dist",
+        "workers/dist",
+        "firebase-debug.log*"
+      ]
+    }
+  ]
 }
